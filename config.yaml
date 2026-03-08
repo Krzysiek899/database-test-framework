@@ -1,0 +1,84 @@
+# ============================================================
+# Database Benchmarking Framework – Master Configuration
+# ============================================================
+
+# Global settings applied to every benchmark run
+global:
+  seed: 42                    # Fixed seed for deterministic data generation
+  warmup_iterations: 3        # Non-measured queries before benchmark
+  benchmark_iterations: 10    # Measured iterations per test function
+  results_dir: "results"      # Output directory for JSON / CSV reports
+  stats_interval_sec: 0.5     # Docker stats polling interval
+
+# ------------------------------------------------------------
+# Engine definitions
+# ------------------------------------------------------------
+engines:
+  postgres:
+    engine_type: postgres
+    image: "postgres:16-alpine"
+    port: 5432
+    host_port: 5432
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: benchdb
+    healthcheck:
+      test: "pg_isready -U bench"
+      interval: 2
+      retries: 15
+    resources:
+      mem_limit: "512m"
+      cpus: 1.0
+
+  mongodb:
+    engine_type: mongodb
+    image: "mongo:7"
+    port: 27017
+    host_port: 27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: bench
+      MONGO_INITDB_ROOT_PASSWORD: bench
+      MONGO_INITDB_DATABASE: benchdb
+    healthcheck:
+      test: "mongosh --eval 'db.runCommand({ping:1})' --quiet"
+      interval: 2
+      retries: 15
+    resources:
+      mem_limit: "512m"
+      cpus: 1.0
+
+# ------------------------------------------------------------
+# Schema definition (engine-agnostic)
+# ------------------------------------------------------------
+schema:
+  tables:
+    - name: users
+      columns:
+        - { name: id,         type: integer, primary_key: true }
+        - { name: username,   type: varchar, length: 100 }
+        - { name: email,      type: varchar, length: 255 }
+        - { name: created_at, type: timestamp }
+      indexes:
+        - { columns: [username], unique: true }
+        - { columns: [email] }
+
+    - name: orders
+      columns:
+        - { name: id,         type: integer, primary_key: true }
+        - { name: user_id,    type: integer }
+        - { name: product,    type: varchar, length: 200 }
+        - { name: quantity,   type: integer }
+        - { name: price,      type: float }
+        - { name: ordered_at, type: timestamp }
+      indexes:
+        - { columns: [user_id] }
+        - { columns: [ordered_at] }
+
+# ------------------------------------------------------------
+# Data seeding
+# ------------------------------------------------------------
+seeding:
+  users:   1000
+  orders:  5000
+
