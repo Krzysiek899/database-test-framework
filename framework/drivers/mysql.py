@@ -1,5 +1,5 @@
 """
-PostgreSQL driver – concrete implementation of DatabaseDriverInterface.
+MySQL driver – concrete implementation of DatabaseDriverInterface using SQLAlchemy.
 """
 
 from __future__ import annotations
@@ -8,8 +8,6 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Union
 from datetime import datetime
 
-import psycopg2
-import psycopg2.extras
 from sqlalchemy import create_engine, MetaData, Table as SATable, Column, Integer, String, Float, DateTime, Boolean, select, func, text
 from pydantic import BaseModel
 
@@ -33,8 +31,8 @@ def _map_type(python_type: Any) -> Any:
     return String(255)
 
 
-class PostgresDriver(DatabaseDriverInterface):
-    """PostgreSQL driver backed by SQLAlchemy Core."""
+class MysqlDriver(DatabaseDriverInterface):
+    """MySQL driver backed by SQLAlchemy Core."""
 
     def __init__(self, engine_name: str, connection_params: Dict[str, Any]) -> None:
         super().__init__(engine_name, connection_params)
@@ -46,21 +44,31 @@ class PostgresDriver(DatabaseDriverInterface):
         user = p.get("user", "bench")
         password = p.get("password", "bench")
         host = p.get("host", "127.0.0.1")
-        port = p.get("port", 5432)
+        port = p.get("port", 3306)
         dbname = p.get("dbname", "benchdb")
 
-        # Create SQLAlchemy engine
-        url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
-        self.engine = create_engine(url)
-        self._connection = self.engine.connect()
-        logger.info("Connected to PostgreSQL on port %s via SQLAlchemy", port)
+        import time
+
+        url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{dbname}"
+        self.engine = create_engine(url, pool_pre_ping=True)
+
+        for attempt in range(10):
+            try:
+                self._connection = self.engine.connect()
+                logger.info("Connected to MySQL on port %s via SQLAlchemy", port)
+                return
+            except Exception as e:
+                logger.debug("MySQL connection attempt %d failed: %s", attempt + 1, e)
+                time.sleep(3)
+
+        raise RuntimeError("Could not connect to MySQL after 30 attempts")
 
     def disconnect(self) -> None:
         if self._connection and not self._connection.closed:
             self._connection.close()
         if self.engine:
             self.engine.dispose()
-            logger.info("Disconnected from PostgreSQL")
+            logger.info("Disconnected from MySQL")
 
     def create_schema(self, table_defs: List[Dict[str, Any]]) -> None:
         """Create schema mapping using SQLAlchemy core."""
@@ -77,35 +85,25 @@ class PostgresDriver(DatabaseDriverInterface):
                     )
                 )
 
-            # Process relationships as foreign keys (many-to-one backward referencing is standard in SQL)
-            # In our generic mapping we create simple tables if passed as normal structures
-
             SATable(table_name, self.metadata, *columns)
 
-        # Drop and recreate
         self.metadata.drop_all(self.engine)
         self.metadata.create_all(self.engine)
-        logger.info("Recreated PostgreSQL schema with SQLAlchemy Core")
+        logger.info("Recreated MySQL schema with SQLAlchemy Core")
 
     def get_metrics(self) -> Dict[str, Any]:
+        metrics = {}
         try:
-            result = self._connection.execute(
-                text(
-                    "SELECT "
-                    "  sum(blks_hit)  AS cache_hits, "
-                    "  sum(blks_read) AS disk_reads "
-                    "FROM pg_stat_database;"
-                )
-            ).fetchone()
-            if result:
-                # the result tuple
-                return {
-                    "cache_hits": result[0],
-                    "disk_reads": result[1],
-                }
+            status_res = self._connection.execute(text("SHOW GLOBAL STATUS LIKE 'Innodb_buffer_pool_read_requests';")).fetchone()
+            if status_res:
+                metrics['cache_read_requests'] = int(status_res[1])
+            status_hit_res = self._connection.execute(text("SHOW GLOBAL STATUS LIKE 'Threads_connected';")).fetchone()
+            if status_hit_res:
+                metrics['threads_connected'] = int(status_hit_res[1])
         except Exception as e:
-            logger.warning("Could not fetch metrics: %s", e)
-        return {}
+            logger.warning("Could not fetch metrics for MySQL: %s", e)
+            pass
+        return metrics
 
     # ------------------------------------------------------------------
     # Facade Support
@@ -113,11 +111,7 @@ class PostgresDriver(DatabaseDriverInterface):
     def insert(self, table_name: str, entity: BaseModel) -> Any:
         table = self.metadata.tables[table_name]
         data = entity.model_dump() if hasattr(entity, "model_dump") else dict(entity)
-
-        # Remove list or nested dictionaries that shouldn't go directly to SQL columns
-        # (in real scenario we'd insert into related tables)
         clean_data = {k: v for k, v in data.items() if not isinstance(v, (list, dict))}
-
         return self._connection.execute(table.insert().values(**clean_data))
 
     def insert_many(self, table_name: str, entities: List[Any]) -> Any:
@@ -127,7 +121,6 @@ class PostgresDriver(DatabaseDriverInterface):
             data = entity.model_dump() if hasattr(entity, "model_dump") else dict(entity)
             clean_data = {k: v for k, v in data.items() if not isinstance(v, (list, dict))}
             data_list.append(clean_data)
-
         return self._connection.execute(table.insert(), data_list)
 
     def _build_where_clause(self, table, filter_dict: Dict):
@@ -144,8 +137,6 @@ class PostgresDriver(DatabaseDriverInterface):
         table = self.metadata.tables[table_name]
         where_clause = self._build_where_clause(table, filter)
         stmt = table.update().where(where_clause).values(**update_data)
-        # Assuming single update by logic:
-        # In SQL, we usually limit or the where clause must be specific (e.g. by id)
         return self._connection.execute(stmt)
 
     def update_many(self, table_name: str, filter: Dict, update_data: Dict) -> Any:
@@ -157,7 +148,6 @@ class PostgresDriver(DatabaseDriverInterface):
     def delete(self, table_name: str, filter: Dict) -> Any:
         table = self.metadata.tables[table_name]
         where_clause = self._build_where_clause(table, filter)
-        # Depending on engine, delete can't easily limit to 1 without specific bindings,
         stmt = table.delete().where(where_clause)
         return self._connection.execute(stmt)
 

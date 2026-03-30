@@ -1,28 +1,38 @@
-# Database Benchmarking Framework
+# Database Test Framework
 
-A modular, reproducible, engine-agnostic framework for comparing SQL and NoSQL database performance. It manages the full lifecycle: environment provisioning via Docker, schema/data initialization, query execution, and telemetry gathering.
+A lightweight, container-based database benchmarking orchestration framework.
 
-## Architecture
+## Project Structure
 
-```
-framework/
-├── core/                # Runner, decorators, config loader
-│   ├── config.py        # YAML config reader & validator
-│   ├── decorators.py    # @benchmark decorator (DSL)
-│   └── runner.py        # BenchmarkRunner – main orchestrator
-├── infra/               # Infrastructure layer
-│   └── provider.py      # InfraProvider – Docker container lifecycle
-├── drivers/             # Abstraction layer
-│   ├── base.py          # DatabaseDriverInterface (Strategy pattern)
-│   ├── factory.py       # DriverFactory (Factory pattern)
-│   ├── postgres.py      # PostgreSQL driver (psycopg2)
-│   └── mongo.py         # MongoDB driver (pymongo)
-├── data/                # Schema & Data layer
-│   └── orchestrator.py  # DataOrchestrator – schema, seeding, warm-up
-├── telemetry/           # Telemetry module
-│   └── observer.py      # Observer – timing + Docker stats
-└── reporting/           # Report generation
-    └── report.py        # Comparative JSON, CSV & chart output
+```text
+database-test-framework/
+├── config.yaml          # Defines engines (Docker), connection info
+├── run_benchmarks.py    # Main entry point (CLI)
+├── requirements.txt     # Python dependencies
+├── data/
+│   └── schema.py        # Framework models schema via @Table declarative API
+├── framework/
+│   ├── core/
+│   │   ├── config.py    # YAML parser & validator
+│   │   ├── decorators.py# Declarative decorators (@Table, @Setup, @Suite, @Benchmark)
+│   │   ├── facade.py    # Unifed Database Access Proxy wrapper
+│   │   ├── registry.py  # Global metadata registry for framework decorations
+│   │   └── runner.py    # BenchmarkRunner – spins up Docker, connects, runs queries, flushes stats
+│   ├── drivers/
+│   │   ├── base.py      # Abstract DatabaseDriverInterface (connect, disconnect, execute)
+│   │   ├── factory.py   # create_driver() factory method
+│   │   ├── postgres.py  # PostgreSQL driver backed by SQLAlchemy
+│   │   ├── mongodb.py   # Mongo driver
+│   │   ├── mysql.py     # MySQL driver backed by SQLAlchemy
+│   │   └── couchdb.py   # CouchDB driver
+│   ├── infra/
+│   │   └── provider.py  # Docker container lifecycle management
+│   ├── reporting/
+│   │   └── report.py    # matplotlib & JSON report generator
+│   └── telemetry/
+│       └── observer.py  # Container stats poller & execution timing
+└── suites/
+    └── example_suite.py # The test files written using your library
 ```
 
 ## Design Patterns
@@ -119,4 +129,3 @@ See `config.yaml` for a fully commented example covering:
    ```
 3. Add the engine section to `config.yaml`.
 4. Add schema translation logic to `DataOrchestrator` if needed.
-

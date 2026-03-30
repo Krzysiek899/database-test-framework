@@ -1,67 +1,74 @@
-"""
-@benchmark decorator – Benchmarking DSL.
-
-Usage::
-
-    @benchmark("Select all users")
-    def test_select_all(driver):
-        return driver.execute("SELECT * FROM users;")
-
-The decorator registers the function in a global test registry.
-At runtime the BenchmarkRunner iterates the registry, injects the
-appropriate driver, and wraps each call with telemetry.
-"""
+"""Declarative decorators for table/setup/suite/test registration."""
 
 from __future__ import annotations
 
 import functools
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Optional, Type
 
-# Global registry: list of (name, function, options)
-_BENCHMARK_REGISTRY: List[Dict] = []
+from framework.core.registry import clear_registry, get_registry
 
 
-def benchmark(
-    name: Optional[str] = None,
-    warmup: Optional[int] = None,
-    iterations: Optional[int] = None,
-):
-    """Decorator that registers a function as a benchmark test.
+def Table(name: Optional[str] = None):
+    """Register a Pydantic model class as a framework table schema."""
 
-    Parameters
-    ----------
-    name:
-        Human-readable name. Defaults to the function's ``__name__``.
-    warmup:
-        Override global warmup iterations for this test.
-    iterations:
-        Override global benchmark iterations for this test.
+    def decorator(model_cls: Type) -> Type:
+        get_registry().register_table(model=model_cls, name=name)
+        setattr(model_cls, "__framework_table_name__", name or model_cls.__name__.lower())
+        return model_cls
+
+    return decorator
+
+
+def Setup(func: Optional[Callable] = None):
+    """Register a single global setup function.
+
+    Can be used as:
+      @Setup
+      def setup(db): ...
     """
 
-    def decorator(func: Callable) -> Callable:
-        entry = {
-            "name": name or func.__name__,
-            "func": func,
-            "warmup": warmup,
-            "iterations": iterations,
-        }
-        _BENCHMARK_REGISTRY.append(entry)
+    def decorator(fn: Callable) -> Callable:
+        get_registry().register_setup(fn)
 
-        @functools.wraps(func)
+        @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    if func is None:
+        return decorator
+    return decorator(func)
+
+
+def Benchmark(name: str):
+    """Register a benchmark function with a given name.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("@Benchmark requires a non-empty benchmark name")
+
+    def decorator(fn: Callable) -> Callable:
+        setattr(fn, "__framework_benchmark_name__", name)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs)
 
         return wrapper
 
     return decorator
 
 
-def get_registered_benchmarks() -> List[Dict]:
-    """Return a copy of the global benchmark registry."""
-    return list(_BENCHMARK_REGISTRY)
+def Suite(name: Optional[str] = None):
+    """Register a test suite class and discover methods marked with @Benchmark."""
+
+    def decorator(suite_cls: Type) -> Type:
+        get_registry().register_suite(suite_cls=suite_cls, name=name)
+        setattr(suite_cls, "__framework_suite_name__", name or suite_cls.__name__)
+        return suite_cls
+
+    return decorator
 
 
-def clear_registry() -> None:
-    """Remove all registered benchmarks (useful for tests)."""
-    _BENCHMARK_REGISTRY.clear()
-
+# Backward compatibility alias for older API names.
+get_registered_benchmarks = get_registry
