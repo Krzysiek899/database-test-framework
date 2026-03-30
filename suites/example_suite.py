@@ -1,5 +1,3 @@
-"""Example suite using the new declarative decorator API."""
-
 import random
 from typing import List
 from datetime import datetime, timedelta
@@ -12,7 +10,6 @@ from data.schema import User, Order, Address, Product
 
 @Setup
 def global_setup(db) -> None:
-    """Global setup logic with Faker generating complex data for benchmarks."""
     fake = Faker()
     Faker.seed(42)
     random.seed(42)
@@ -104,3 +101,92 @@ class ComplexEcommerceSuite:
         )
         db.orders.insert(order)
         db.orders.delete({"id": 999999})
+
+    @Benchmark("count_all_users")
+    def count_all_users(self, db):
+        return db.users.count()
+
+    @Benchmark("count_all_orders")
+    def count_all_orders(self, db):
+        return db.orders.count()
+
+    @Benchmark("find_inactive_users")
+    def find_inactive_users(self, db):
+        return db.users.count({"is_active": False})
+
+    @Benchmark("find_pending_orders")
+    def find_pending_orders(self, db):
+        return db.orders.count({"status": "PENDING"})
+
+    @Benchmark("find_high_value_orders")
+    def find_high_value_orders(self, db):
+        all_orders = db.orders.find_all()
+        return len([o for o in all_orders if isinstance(o, dict) and o.get('total_amount', 0) > 500])
+
+    @Benchmark("select_first_user")
+    def select_first_user(self, db):
+        result = db.users.select({"id": 1})
+        return len(result) if result else 0
+
+    @Benchmark("update_user_status")
+    def update_user_status(self, db):
+        db.users.update({"id": 2}, {"is_active": False})
+        db.users.update({"id": 2}, {"is_active": True})
+
+    @Benchmark("update_order_status")
+    def update_order_status(self, db):
+        db.orders.update({"id": 1}, {"status": "SHIPPED"})
+        db.orders.update({"id": 1}, {"status": "PENDING"})
+
+    @Benchmark("delete_and_reinsert_order")
+    def delete_and_reinsert_order(self, db):
+        test_order = Order(
+            id=888888,
+            user_id=1,
+            status="PENDING",
+            total_amount=150.0,
+            ordered_at=datetime.now(),
+            items=[
+                Product(product_id=2222, name="Test Item", category="Electronics", price=150.0, tags=["test"])
+            ]
+        )
+        db.orders.insert(test_order)
+        db.orders.delete({"id": 888888})
+
+    @Benchmark("batch_insert_orders")
+    def batch_insert_orders(self, db):
+        batch_orders = []
+        batch_size = 10
+        for i in range(batch_size):
+            order = Order(
+                id=777777 + i,
+                user_id=1,
+                status="PENDING",
+                total_amount=100.0 + i * 10,
+                ordered_at=datetime.now(),
+                items=[
+                    Product(product_id=3000 + i, name=f"Batch Item {i}", category="Bulk", price=100.0 + i * 10, tags=["batch"])
+                ]
+            )
+            batch_orders.append(order)
+        db.orders.insert_many(batch_orders)
+        for i in range(batch_size):
+            db.orders.delete({"id": 777777 + i})
+
+    @Benchmark("find_user_orders")
+    def find_user_orders(self, db):
+        return db.orders.count({"user_id": 1})
+
+    @Benchmark("find_cancelled_orders")
+    def find_cancelled_orders(self, db):
+        return db.orders.count({"status": "CANCELLED"})
+
+    @Benchmark("scan_all_users")
+    def scan_all_users(self, db):
+        result = db.users.find_all()
+        return len(result) if result else 0
+
+    @Benchmark("scan_all_orders")
+    def scan_all_orders(self, db):
+        result = db.orders.find_all()
+        return len(result) if result else 0
