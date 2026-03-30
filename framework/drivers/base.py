@@ -1,11 +1,5 @@
 """
 DatabaseDriverInterface – Strategy-pattern base class.
-
-Every concrete driver must implement:
-  • connect()    – open a connection / pool
-  • disconnect() – close it
-  • execute(query) – run a SQL string **or** a callable (NoSQL)
-  • get_metrics() – return engine-specific diagnostic info
 """
 
 from __future__ import annotations
@@ -32,6 +26,11 @@ class DatabaseDriverInterface(abc.ABC):
     @abc.abstractmethod
     def disconnect(self) -> None:
         """Gracefully close the connection."""
+
+    @abc.abstractmethod
+    def create_schema(self, table_defs: List[Dict[str, Any]]) -> None:
+        """Create database schema from table definitions."""
+        pass
 
     # ------------------------------------------------------------------
     # Metrics
@@ -94,7 +93,7 @@ class DatabaseDriverInterface(abc.ABC):
         pass
 
     # ------------------------------------------------------------------
-    # Context-manager sugar
+    # Context-manager
     # ------------------------------------------------------------------
     def __enter__(self) -> "DatabaseDriverInterface":
         self.connect()

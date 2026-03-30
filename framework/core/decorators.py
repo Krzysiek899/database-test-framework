@@ -20,12 +20,7 @@ def Table(name: Optional[str] = None):
 
 
 def Setup(func: Optional[Callable] = None):
-    """Register a single global setup function.
-
-    Can be used as:
-      @Setup
-      def setup(db): ...
-    """
+    """Register a single global setup function."""
 
     def decorator(fn: Callable) -> Callable:
         get_registry().register_setup(fn)
@@ -42,8 +37,7 @@ def Setup(func: Optional[Callable] = None):
 
 
 def Benchmark(name: str):
-    """Register a benchmark function with a given name.
-    """
+    """Register a benchmark function with a given name."""
     if not isinstance(name, str) or not name.strip():
         raise ValueError("@Benchmark requires a non-empty benchmark name")
 
@@ -70,5 +64,4 @@ def Suite(name: Optional[str] = None):
     return decorator
 
 
-# Backward compatibility alias for older API names.
 get_registered_benchmarks = get_registry

@@ -1,18 +1,5 @@
 """
 BenchmarkRunner – orchestrates the full benchmarking lifecycle.
-
-Workflow:
-  1. Read config → identify target engines.
-  2. For each engine:
-     a. Spin up container (InfraProvider).
-     b. Create driver & connect (DriverFactory).
-     c. Apply schema + run @Setup logic (user defined).
-     d. For each registered @benchmark test:
-        i.   Warm-up (non-measured iterations).
-        ii.  Benchmark (measured iterations with telemetry).
-     e. Flush results (JSON + CSV).
-     f. Teardown container.
-  3. Generate comparative report.
 """
 
 from __future__ import annotations

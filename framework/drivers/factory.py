@@ -8,14 +8,6 @@ from typing import Any, Dict
 
 from framework.drivers.base import DatabaseDriverInterface
 
-_REGISTRY: Dict[str, type] = {
-    "postgres": "framework.drivers.postgres.PostgresDriver",
-    "mongodb": "framework.drivers.mongo.MongoDriver",
-    "mysql": "framework.drivers.mysql.MysqlDriver",
-    "couchdb": "framework.drivers.couchdb.CouchDbDriver",
-}
-
-
 def create_driver(
     engine_name: str, engine_type: str, connection_params: Dict[str, Any]
 ) -> "DatabaseDriverInterface":

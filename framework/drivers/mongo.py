@@ -22,6 +22,9 @@ class MongoDriver(DatabaseDriverInterface):
         self._client: Optional[MongoClient] = None
         self._db: Any = None
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     def connect(self) -> None:
         p = self.connection_params
         host = p.get("host", "127.0.0.1")
@@ -33,7 +36,6 @@ class MongoDriver(DatabaseDriverInterface):
         uri = f"mongodb://{user}:{password}@{host}:{port}/{dbname}?authSource=admin"
         self._client = MongoClient(uri)
         self._db = self._client[dbname]
-        # Force a round-trip to verify the connection
         self._client.admin.command("ping")
         logger.info("Connected to MongoDB on port %s", port)
 
@@ -48,12 +50,9 @@ class MongoDriver(DatabaseDriverInterface):
             self._db[table_def["name"]].drop()
         logger.info("Dropped MongoDB existing collections")
 
-    @property
-    def db(self):
-        """Expose the native database handle for callable queries."""
-        return self._db
-
-
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
     def get_metrics(self) -> Dict[str, Any]:
         assert self._db is not None
         stats = self._db.command("serverStatus")

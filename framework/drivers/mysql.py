@@ -39,6 +39,9 @@ class MysqlDriver(DatabaseDriverInterface):
         self.engine = None
         self.metadata = MetaData()
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     def connect(self) -> None:
         p = self.connection_params
         user = p.get("user", "bench")
@@ -91,6 +94,9 @@ class MysqlDriver(DatabaseDriverInterface):
         self.metadata.create_all(self.engine)
         logger.info("Recreated MySQL schema with SQLAlchemy Core")
 
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
     def get_metrics(self) -> Dict[str, Any]:
         metrics = {}
         try:

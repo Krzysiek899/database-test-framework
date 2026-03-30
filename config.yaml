@@ -1,6 +1,5 @@
 # Global settings applied to every benchmark run
 global:
-  seed: 42                    # Fixed seed for deterministic data generation
   warmup_iterations: 3        # Non-measured queries before benchmark
   benchmark_iterations: 10    # Measured iterations per test function
   results_dir: "results"      # Output directory for JSON / CSV reports

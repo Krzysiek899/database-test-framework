@@ -22,6 +22,9 @@ class CouchDbDriver(DatabaseDriverInterface):
         self._server: Optional[couchdb.Server] = None
         self._db: Any = None
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     def connect(self) -> None:
         p = self.connection_params
         host = p.get("host", "127.0.0.1")
@@ -33,7 +36,6 @@ class CouchDbDriver(DatabaseDriverInterface):
         self._server = couchdb.Server(url)
         logger.info("Connected to CouchDB on port %s", port)
 
-        # Inicjalizacja wymaganych baz systemowych zapobiegajaca bledom logow
         for sys_db in ["_users", "_replicator", "_global_changes"]:
             try:
                 if sys_db not in self._server:
@@ -52,6 +54,9 @@ class CouchDbDriver(DatabaseDriverInterface):
             self._server.create(table_name)
         logger.info("Recreated Databases (tables) in CouchDB")
 
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
     def get_metrics(self) -> Dict[str, Any]:
         metrics = {}
         try:
@@ -62,6 +67,9 @@ class CouchDbDriver(DatabaseDriverInterface):
             pass
         return metrics
 
+    # ------------------------------------------------------------------
+    # Facade Support
+    # ------------------------------------------------------------------
     def insert(self, table_name: str, entity: Any) -> Any:
         data = entity.model_dump(mode='json') if hasattr(entity, "model_dump") else dict(entity)
         if "id" in data and "_id" not in data:

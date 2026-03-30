@@ -5,11 +5,9 @@ PostgreSQL driver – concrete implementation of DatabaseDriverInterface.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
-import psycopg2
-import psycopg2.extras
 from sqlalchemy import create_engine, MetaData, Table as SATable, Column, Integer, String, Float, DateTime, Boolean, select, func, text
 from pydantic import BaseModel
 
@@ -41,6 +39,9 @@ class PostgresDriver(DatabaseDriverInterface):
         self.engine = None
         self.metadata = MetaData()
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     def connect(self) -> None:
         p = self.connection_params
         user = p.get("user", "bench")
@@ -76,17 +77,15 @@ class PostgresDriver(DatabaseDriverInterface):
                         nullable=col["nullable"]
                     )
                 )
-
-            # Process relationships as foreign keys (many-to-one backward referencing is standard in SQL)
-            # In our generic mapping we create simple tables if passed as normal structures
-
             SATable(table_name, self.metadata, *columns)
 
-        # Drop and recreate
         self.metadata.drop_all(self.engine)
         self.metadata.create_all(self.engine)
         logger.info("Recreated PostgreSQL schema with SQLAlchemy Core")
 
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
     def get_metrics(self) -> Dict[str, Any]:
         try:
             result = self._connection.execute(
@@ -114,8 +113,8 @@ class PostgresDriver(DatabaseDriverInterface):
         table = self.metadata.tables[table_name]
         data = entity.model_dump() if hasattr(entity, "model_dump") else dict(entity)
 
+        # TODO: Map nested structures to related tables or JSON columns as needed.
         # Remove list or nested dictionaries that shouldn't go directly to SQL columns
-        # (in real scenario we'd insert into related tables)
         clean_data = {k: v for k, v in data.items() if not isinstance(v, (list, dict))}
 
         return self._connection.execute(table.insert().values(**clean_data))
