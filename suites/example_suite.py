@@ -10,6 +10,8 @@ from data.schema import User, Order, Address, Product
 
 @Setup
 def global_setup(db) -> None:
+    db.orders.create_index("status")
+
     fake = Faker()
     Faker.seed(42)
     random.seed(42)

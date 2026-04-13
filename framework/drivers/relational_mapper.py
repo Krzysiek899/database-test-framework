@@ -9,7 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
-from sqlalchemy import MetaData, Table as SATable, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, select, func, and_
+from sqlalchemy import MetaData, Table as SATable, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, select, func, and_, Index
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,20 @@ class RelationalMapper:
             self.metadata.drop_all(self.engine)
             self.metadata.create_all(self.engine)
             logger.info("Recreated schema with SQLAlchemy Core")
+
+    def create_index(self, table_name: str, column_name: str) -> None:
+        if table_name not in self.metadata.tables:
+            logger.warning("Table %s not found. Skipping index creation.", table_name)
+            return
+
+        table = self.metadata.tables[table_name]
+
+        if column_name not in table.c:
+            logger.warning("Column %s not found in table %s. Skipping index creation.", column_name, table_name)
+            return
+
+        idx = Index(f"ix_{table_name}_{column_name}", table.c[column_name])
+        idx.create(self.engine)
 
     def _build_where_clause(self, table, filter_dict: Dict):
         conditions = []

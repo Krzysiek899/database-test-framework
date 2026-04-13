@@ -63,6 +63,9 @@ class MysqlDriver(DatabaseDriverInterface):
     def create_schema(self, table_defs: List[Dict[str, Any]]) -> None:
         self.mapper.create_schema(table_defs)
 
+    def create_index(self, table_name: str, column_name: str) -> None:
+        self.mapper.create_index(table_name, column_name)
+
     # ------------------------------------------------------------------
     # Metrics
     # ------------------------------------------------------------------

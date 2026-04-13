@@ -54,6 +54,9 @@ class CouchDbDriver(DatabaseDriverInterface):
             self._server.create(table_name)
         logger.info("Recreated Databases (tables) in CouchDB")
 
+    def create_index(self, table_name: str, column_name: str) -> None:
+        pass
+
     # ------------------------------------------------------------------
     # Metrics
     # ------------------------------------------------------------------

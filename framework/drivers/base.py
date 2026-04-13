@@ -32,6 +32,11 @@ class DatabaseDriverInterface(abc.ABC):
         """Create database schema from table definitions."""
         pass
 
+    @abc.abstractmethod
+    def create_index(self, table_name: str, column_name: str) -> None:
+        """Create an index on the given column."""
+        pass
+
     # ------------------------------------------------------------------
     # Metrics
     # ------------------------------------------------------------------

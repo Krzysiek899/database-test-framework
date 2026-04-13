@@ -45,10 +45,10 @@ class MongoDriver(DatabaseDriverInterface):
             logger.info("Disconnected from MongoDB")
 
     def create_schema(self, table_defs: List[Dict[str, Any]]) -> None:
-        """Drop existing collections explicitly so they start fresh."""
-        for table_def in table_defs:
-            self._db[table_def["name"]].drop()
-        logger.info("Dropped MongoDB existing collections")
+        pass
+
+    def create_index(self, table_name: str, column_name: str) -> None:
+        pass
 
     # ------------------------------------------------------------------
     # Metrics

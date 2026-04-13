@@ -8,6 +8,9 @@ class CollectionFacade:
         self.table_name = table_name
         self.driver = driver
 
+    def create_index(self, column_name: str) -> None:
+        return self.driver.create_index(self.table_name, column_name)
+
     def insert(self, entity: BaseModel) -> Any:
         return self.driver.insert(self.table_name, entity)
 
