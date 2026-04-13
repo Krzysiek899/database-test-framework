@@ -86,8 +86,10 @@ class CouchDbDriver(DatabaseDriverInterface):
             if "id" in data and "_id" not in data:
                 data["_id"] = str(data["id"])
             data_list.append(data)
-        if data_list:
-            db.update(data_list)
+
+        batch_size = 1000
+        for i in range(0, len(data_list), batch_size):
+            db.update(data_list[i:i + batch_size])
         return
 
     def update(self, table_name: str, filter: Dict, update_data: Dict) -> Any:
@@ -99,9 +101,14 @@ class CouchDbDriver(DatabaseDriverInterface):
 
     def update_many(self, table_name: str, filter: Dict, update_data: Dict) -> Any:
         db = self._server[table_name]
+        docs_to_update = []
         for doc in db.find({'selector': filter}):
             doc.update(update_data)
-            db.save(doc)
+            docs_to_update.append(doc)
+
+        batch_size = 1000
+        for i in range(0, len(docs_to_update), batch_size):
+            db.update(docs_to_update[i:i + batch_size])
 
     def delete(self, table_name: str, filter: Dict) -> Any:
         db = self._server[table_name]
@@ -111,8 +118,14 @@ class CouchDbDriver(DatabaseDriverInterface):
 
     def delete_many(self, table_name: str, filter: Dict) -> Any:
         db = self._server[table_name]
+        docs_to_delete = []
         for doc in db.find({'selector': filter}):
-            db.delete(doc)
+            doc['_deleted'] = True
+            docs_to_delete.append(doc)
+
+        batch_size = 1000
+        for i in range(0, len(docs_to_delete), batch_size):
+            db.update(docs_to_delete[i:i + batch_size])
 
     def select(self, table_name: str, filter: Dict) -> Any:
         db = self._server[table_name]
