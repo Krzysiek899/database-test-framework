@@ -127,7 +127,7 @@ class ComplexEcommerceSuite:
 
     @Benchmark("select_first_user")
     def select_first_user(self, db):
-        result = db.users.select({"id": 1})
+        result = db.users.select({"id": 1}, use_explain=True)
         return len(result) if result else 0
 
     @Benchmark("update_user_status")

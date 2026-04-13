@@ -104,8 +104,8 @@ class MysqlDriver(DatabaseDriverInterface):
     def delete_many(self, table_name: str, filter: Dict) -> Any:
         return self.mapper.delete_many(table_name, filter)
 
-    def select(self, table_name: str, filter: Dict) -> Any:
-        return self.mapper.select(table_name, filter)
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+        return self.mapper.select(table_name, filter, use_explain)
 
     def find_all(self, table_name: str) -> Any:
         return self.mapper.find_all(table_name)

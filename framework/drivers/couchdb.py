@@ -5,7 +5,9 @@ CouchDB driver – concrete implementation of DatabaseDriverInterface.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 import couchdb
 
@@ -21,6 +23,7 @@ class CouchDbDriver(DatabaseDriverInterface):
         super().__init__(engine_name, connection_params)
         self._server: Optional[couchdb.Server] = None
         self._db: Any = None
+        self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -130,8 +133,21 @@ class CouchDbDriver(DatabaseDriverInterface):
         for i in range(0, len(docs_to_delete), batch_size):
             db.update(docs_to_delete[i:i + batch_size])
 
-    def select(self, table_name: str, filter: Dict) -> Any:
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
         db = self._server[table_name]
+
+        if use_explain:
+            try:
+                explain_res = db.explain({'selector': filter})
+                os.makedirs("results/explain_logs", exist_ok=True)
+                log_path = f"results/explain_logs/couchdb_{self.run_timestamp}.txt"
+
+                with open(log_path, "a") as f:
+                    f.write(f"--- EXPLAIN TARGET: {table_name} filter: {filter} ---\n")
+                    f.write(f"{explain_res}\n")
+            except Exception as e:
+                logger.warning(f"CouchDB EXPLAIN failed: {e}")
+
         return list(db.find({'selector': filter}))
 
     def find_all(self, table_name: str) -> Any:

@@ -5,7 +5,9 @@ MongoDB driver – concrete implementation of DatabaseDriverInterface.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from pymongo import MongoClient
 
@@ -21,6 +23,7 @@ class MongoDriver(DatabaseDriverInterface):
         super().__init__(engine_name, connection_params)
         self._client: Optional[MongoClient] = None
         self._db: Any = None
+        self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -94,8 +97,16 @@ class MongoDriver(DatabaseDriverInterface):
     def delete_many(self, table_name: str, filter: Dict) -> Any:
         return self._db[table_name].delete_many(filter)
 
-    def select(self, table_name: str, filter: Dict) -> Any:
-        return list(self._db[table_name].find(filter))
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+        cursor = self._db[table_name].find(filter)
+        if use_explain:
+            os.makedirs("results/explain_logs", exist_ok=True)
+            log_path = f"results/explain_logs/mongodb_{self.run_timestamp}.txt"
+
+            with open(log_path, "a") as f:
+                f.write(f"--- EXPLAIN TARGET: {table_name} filter: {filter} ---\n")
+                f.write(f"{cursor.explain()}\n")
+        return list(cursor)
 
     def find_all(self, table_name: str) -> Any:
         return list(self._db[table_name].find())
