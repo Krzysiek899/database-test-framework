@@ -58,7 +58,8 @@ def main() -> None:
         config_path=args.config,
         suite_modules=args.suite,
     )
-    runner.run(engines=args.engines)
+    # skip mysql for now
+    runner.run(engines=args.engines or ['postgres', 'mongodb', 'couchdb'])  
 
 
 if __name__ == "__main__":

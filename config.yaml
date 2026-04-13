@@ -11,7 +11,7 @@ engines:
     engine_type: postgres
     image: "postgres:16-alpine"
     port: 5432
-    host_port: 5432
+    host_port: 5433
     environment:
       POSTGRES_USER: bench
       POSTGRES_PASSWORD: bench

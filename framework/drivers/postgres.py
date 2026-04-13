@@ -33,7 +33,7 @@ class PostgresDriver(DatabaseDriverInterface):
         user = p.get("user", "bench")
         password = p.get("password", "bench")
         host = p.get("host", "127.0.0.1")
-        port = p.get("port", 5432)
+        port = p.get("port", 5433)
         dbname = p.get("dbname", "benchdb")
 
         # Create SQLAlchemy engine
