@@ -1,124 +1,194 @@
-"""
-Example benchmark suite.
+import random
+from typing import List
+from datetime import datetime, timedelta
 
-Each function decorated with ``@benchmark(...)`` is automatically registered
-and will be executed against every configured engine.
+from faker import Faker
 
-The function receives a single argument – the database driver instance.
-  • For SQL engines: use ``driver.execute("SELECT ...")``
-  • For NoSQL engines: use ``driver.execute(lambda db: db.collection.find(...))``
-
-To handle both SQL and NoSQL in a single function, inspect ``driver.engine_name``
-or write separate functions.
-"""
-
-from framework.core.decorators import benchmark
+from framework.core.decorators import Setup, Suite, Benchmark
+from data.schema import User, Order, Address, Product
 
 
-# ---- Read-heavy queries ---------------------------------------------------
+@Setup
+def global_setup(db) -> None:
+    db.orders.create_index("status")
 
-@benchmark(name="select_all_users")
-def select_all_users(driver):
-    """Full table scan on users."""
-    if driver.engine_name == "mongodb":
-        return driver.execute(lambda db: list(db.users.find()))
-    return driver.execute("SELECT * FROM users;")
+    fake = Faker()
+    Faker.seed(42)
+    random.seed(42)
 
+    NUM_USERS = 500
+    ORDERS_PER_USER = (0, 5)
 
-@benchmark(name="select_user_by_username")
-def select_user_by_username(driver):
-    """Point lookup on indexed column."""
-    if driver.engine_name == "mongodb":
-        return driver.execute(lambda db: db.users.find_one({"username": "user_500"}))
-    return driver.execute(
-        "SELECT * FROM users WHERE username = %s;", ("user_500",)
-    )
+    users: List[User] = []
+    orders: List[Order] = []
 
+    order_id_counter = 1
 
-@benchmark(name="count_orders")
-def count_orders(driver):
-    """Simple aggregation."""
-    if driver.engine_name == "mongodb":
-        return driver.execute(lambda db: db.orders.count_documents({}))
-    return driver.execute("SELECT count(*) FROM orders;")
-
-
-# ---- Aggregation ----------------------------------------------------------
-
-@benchmark(name="orders_total_by_user")
-def orders_total_by_user(driver):
-    """GROUP BY aggregation with SUM."""
-    if driver.engine_name == "mongodb":
-        return driver.execute(
-            lambda db: list(
-                db.orders.aggregate(
-                    [
-                        {
-                            "$group": {
-                                "_id": "$user_id",
-                                "total": {"$sum": "$price"},
-                                "count": {"$sum": 1},
-                            }
-                        },
-                        {"$sort": {"total": -1}},
-                        {"$limit": 10},
-                    ]
-                )
-            )
+    for user_id in range(1, NUM_USERS + 1):
+        address = Address(
+            street=fake.street_address(),
+            city=fake.city(),
+            postal_code=fake.postcode(),
+            country=fake.country()
         )
-    return driver.execute(
-        "SELECT user_id, SUM(price) AS total, COUNT(*) AS cnt "
-        "FROM orders GROUP BY user_id ORDER BY total DESC LIMIT 10;"
-    )
 
+        created_at = fake.date_time_between(start_date="-2y", end_date="now")
+        last_login = fake.date_time_between(start_date=created_at, end_date="now")
 
-# ---- Join / Lookup --------------------------------------------------------
-
-@benchmark(name="orders_with_user_info")
-def orders_with_user_info(driver):
-    """Join orders with users (SQL) / $lookup (Mongo)."""
-    if driver.engine_name == "mongodb":
-        return driver.execute(
-            lambda db: list(
-                db.orders.aggregate(
-                    [
-                        {
-                            "$lookup": {
-                                "from": "users",
-                                "localField": "user_id",
-                                "foreignField": "id",
-                                "as": "user",
-                            }
-                        },
-                        {"$limit": 50},
-                    ]
-                )
-            )
+        user = User(
+            id=user_id,
+            username=fake.user_name(),
+            email=fake.unique.email(),
+            is_active=fake.boolean(chance_of_getting_true=90),
+            created_at=created_at,
+            last_login=last_login,
+            address=address
         )
-    return driver.execute(
-        "SELECT o.*, u.username, u.email "
-        "FROM orders o JOIN users u ON o.user_id = u.id "
-        "LIMIT 50;"
-    )
+        users.append(user)
 
+        num_orders = random.randint(*ORDERS_PER_USER)
+        for _ in range(num_orders):
+            num_products = random.randint(1, 4)
+            items = []
+            total_amount = 0.0
 
-# ---- Range scan -----------------------------------------------------------
+            for _ in range(num_products):
+                price = round(random.uniform(10.0, 500.0), 2)
+                total_amount += price
+                items.append(Product(
+                    product_id=random.randint(1000, 9999),
+                    name=fake.ecommerce_name() if hasattr(fake, 'ecommerce_name') else fake.word(),
+                    category=fake.word(),
+                    price=price,
+                    tags=[fake.word(), fake.word()]
+                ))
 
-@benchmark(name="recent_orders")
-def recent_orders(driver):
-    """Range query on indexed timestamp column."""
-    if driver.engine_name == "mongodb":
-        from datetime import datetime, timedelta, timezone
-
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-        return driver.execute(
-            lambda db: list(
-                db.orders.find({"ordered_at": {"$gte": cutoff}}).limit(100)
+            order = Order(
+                id=order_id_counter,
+                user_id=user_id,
+                status=random.choice(["PENDING", "SHIPPED", "DELIVERED", "CANCELLED"]),
+                total_amount=round(total_amount, 2),
+                ordered_at=fake.date_time_between(start_date=created_at, end_date="now"),
+                items=items
             )
-        )
-    return driver.execute(
-        "SELECT * FROM orders "
-        "WHERE ordered_at >= NOW() - INTERVAL '30 days' "
-        "LIMIT 100;"
-    )
+            orders.append(order)
+            order_id_counter += 1
 
+    db.users.insert_many(users)
+    db.orders.insert_many(orders)
+
+
+@Suite("complex_ecommerce_suite")
+class ComplexEcommerceSuite:
+
+    @Benchmark("find_active_users")
+    def find_active_users(self, db):
+        return db.users.count({"is_active": True})
+
+    @Benchmark("find_delivered_orders")
+    def find_delivered_orders(self, db):
+        return db.orders.count({"status": "DELIVERED"})
+
+    @Benchmark("insert_single_order")
+    def insert_single_order(self, db):
+        order = Order(
+            id=999999,
+            user_id=1,
+            status="PENDING",
+            total_amount=99.99,
+            ordered_at=datetime.now(),
+            items=[
+                Product(product_id=1111, name="Test Product", category="Test", price=99.99, tags=["benchmark"])
+            ]
+        )
+        db.orders.insert(order)
+        db.orders.delete({"id": 999999})
+
+    @Benchmark("count_all_users")
+    def count_all_users(self, db):
+        return db.users.count()
+
+    @Benchmark("count_all_orders")
+    def count_all_orders(self, db):
+        return db.orders.count()
+
+    @Benchmark("find_inactive_users")
+    def find_inactive_users(self, db):
+        return db.users.count({"is_active": False})
+
+    @Benchmark("find_pending_orders")
+    def find_pending_orders(self, db):
+        return db.orders.count({"status": "PENDING"})
+
+    @Benchmark("find_high_value_orders")
+    def find_high_value_orders(self, db):
+        all_orders = db.orders.find_all()
+        return len([o for o in all_orders if isinstance(o, dict) and o.get('total_amount', 0) > 500])
+
+    @Benchmark("select_first_user")
+    def select_first_user(self, db):
+        result = db.users.select({"id": 1}, use_explain=True)
+        return len(result) if result else 0
+
+    @Benchmark("update_user_status")
+    def update_user_status(self, db):
+        db.users.update({"id": 2}, {"is_active": False})
+        db.users.update({"id": 2}, {"is_active": True})
+
+    @Benchmark("update_order_status")
+    def update_order_status(self, db):
+        db.orders.update({"id": 1}, {"status": "SHIPPED"})
+        db.orders.update({"id": 1}, {"status": "PENDING"})
+
+    @Benchmark("delete_and_reinsert_order")
+    def delete_and_reinsert_order(self, db):
+        test_order = Order(
+            id=888888,
+            user_id=1,
+            status="PENDING",
+            total_amount=150.0,
+            ordered_at=datetime.now(),
+            items=[
+                Product(product_id=2222, name="Test Item", category="Electronics", price=150.0, tags=["test"])
+            ]
+        )
+        db.orders.insert(test_order)
+        db.orders.delete({"id": 888888})
+
+    @Benchmark("batch_insert_orders")
+    def batch_insert_orders(self, db):
+        batch_orders = []
+        batch_size = 10
+        for i in range(batch_size):
+            order = Order(
+                id=777777 + i,
+                user_id=1,
+                status="PENDING",
+                total_amount=100.0 + i * 10,
+                ordered_at=datetime.now(),
+                items=[
+                    Product(product_id=3000 + i, name=f"Batch Item {i}", category="Bulk", price=100.0 + i * 10, tags=["batch"])
+                ]
+            )
+            batch_orders.append(order)
+        db.orders.insert_many(batch_orders)
+        for i in range(batch_size):
+            db.orders.delete({"id": 777777 + i})
+
+    @Benchmark("find_user_orders")
+    def find_user_orders(self, db):
+        return db.orders.count({"user_id": 1})
+
+    @Benchmark("find_cancelled_orders")
+    def find_cancelled_orders(self, db):
+        return db.orders.count({"status": "CANCELLED"})
+
+    @Benchmark("scan_all_users")
+    def scan_all_users(self, db):
+        result = db.users.find_all()
+        return len(result) if result else 0
+
+    @Benchmark("scan_all_orders")
+    def scan_all_orders(self, db):
+        result = db.orders.find_all()
+        return len(result) if result else 0

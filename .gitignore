@@ -13,10 +13,8 @@ venv/
 .vscode/
 *.swp
 
-# Results (generated)
-results/*.json
-results/*.csv
-results/*.png
+# Results
+results/
 
 # OS
 .DS_Store

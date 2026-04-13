@@ -129,8 +129,14 @@ class InfraProvider:
         test_cmd = hc.get("test", "true")
         interval = hc.get("interval", 2)
         retries = hc.get("retries", 15)
+        start_period_sec = hc.get("start_period_sec", 0)
 
         assert self.container is not None
+
+        if start_period_sec > 0:
+            logger.info("Waiting %d seconds before initiating healthcheck for %s", start_period_sec, self.engine_name)
+            time.sleep(start_period_sec)
+
         for attempt in range(1, retries + 1):
             exit_code, _ = self.container.exec_run(test_cmd)
             if exit_code == 0:
@@ -150,4 +156,3 @@ class InfraProvider:
             f"Engine {self.engine_name} did not become healthy "
             f"after {retries} attempts"
         )
-

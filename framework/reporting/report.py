@@ -27,25 +27,19 @@ def generate_report(result_files: List[str], output_dir: str) -> None:
             engine = entry["engine"]
             all_data.setdefault(engine, []).append(entry)
 
-    # ---- comparative summary ----
     summary = _build_summary(all_data)
     _print_summary(summary)
 
-    # ---- save comparative JSON ----
     os.makedirs(output_dir, exist_ok=True)
     summary_path = os.path.join(output_dir, "comparative_report.json")
     with open(summary_path, "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2, default=str)
     logger.info("Comparative JSON saved to %s", summary_path)
 
-    # ---- generate chart ----
     try:
         _generate_chart(summary, output_dir)
     except Exception as exc:
         logger.warning("Chart generation failed (matplotlib may not be available): %s", exc)
-
-
-# ---- internal helpers ----
 
 def _build_summary(all_data: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
     """Build a dict of {test_name: {engine: stats}}."""

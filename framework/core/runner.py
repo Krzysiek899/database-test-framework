@@ -1,18 +1,5 @@
 """
 BenchmarkRunner – orchestrates the full benchmarking lifecycle.
-
-Workflow:
-  1. Read config → identify target engines.
-  2. For each engine:
-     a. Spin up container (InfraProvider).
-     b. Create driver & connect (DriverFactory).
-     c. Apply schema + seed data (DataOrchestrator).
-     d. For each registered @benchmark test:
-        i.   Warm-up (non-measured iterations).
-        ii.  Benchmark (measured iterations with telemetry).
-     e. Flush results (JSON + CSV).
-     f. Teardown container.
-  3. Generate comparative report.
 """
 
 from __future__ import annotations
@@ -20,16 +7,15 @@ from __future__ import annotations
 import importlib
 import logging
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, get_origin, get_args
 
 from framework.core.config import load_config
-from framework.core.decorators import get_registered_benchmarks
-from framework.data.orchestrator import DataOrchestrator
-from framework.drivers.factory import create_driver
+from framework.core.registry import get_registry
 from framework.drivers.base import DatabaseDriverInterface
+from framework.drivers.factory import create_driver
 from framework.infra.provider import InfraProvider
-from framework.telemetry.observer import Observer
 from framework.reporting.report import generate_report
+from framework.telemetry.observer import Observer
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +70,17 @@ class BenchmarkRunner:
             driver.connect()
 
             try:
-                # Schema + seed
-                schema_cfg = self.cfg.get("schema", {})
-                seeding_cfg = self.cfg.get("seeding", {})
-                seed = self.global_cfg.get("seed", 42)
-                orchestrator = DataOrchestrator(driver, engine_cfg["engine_type"], schema_cfg, seeding_cfg, seed)
-                orchestrator.setup()
+                registry = get_registry()
+                db = driver.get_db_interface() if hasattr(driver, "get_db_interface") else driver
+
+                # Build schema from @Table metadata
+                if hasattr(driver, "create_schema"):
+                    table_defs = [self._build_table_def(table.name, table.model) for table in registry.tables]
+                    driver.create_schema(table_defs)
+
+                # Schema + seed - user defined now
+                if registry.setup is not None:
+                    registry.setup.fn(db)
 
                 # Telemetry
                 observer = Observer(
@@ -100,12 +91,14 @@ class BenchmarkRunner:
                 observer.start_resource_monitoring()
 
                 # Execute benchmarks
-                benchmarks = get_registered_benchmarks()
-                if not benchmarks:
-                    logger.warning("No @benchmark functions registered!")
+                suites = registry.suites
+                if not suites:
+                    logger.warning("No @Suite functions registered!")
 
-                for entry in benchmarks:
-                    self._run_benchmark(driver, observer, entry)
+                for suite_meta in suites:
+                    suite_instance = suite_meta.suite_cls()
+                    for bench in suite_meta.benchmarks:
+                        self._run_benchmark(db, observer, bench.name, getattr(suite_instance, bench.fn_name))
 
                 observer.stop_resource_monitoring()
 
@@ -122,31 +115,31 @@ class BenchmarkRunner:
     # ------------------------------------------------------------------
     def _run_benchmark(
         self,
-        driver: DatabaseDriverInterface,
+        db: Any,
         observer: Observer,
-        entry: Dict[str, Any],
+        test_name: str,
+        func: Any,
     ) -> None:
-        test_name = entry["name"]
-        func = entry["func"]
-        warmup = entry.get("warmup") or self.global_cfg.get("warmup_iterations", 3)
-        iterations = entry.get("iterations") or self.global_cfg.get("benchmark_iterations", 10)
+        warmup = self.global_cfg.get("warmup_iterations", 3)
+        iterations = self.global_cfg.get("benchmark_iterations", 10)
 
         logger.info("--- %s (warmup=%d, iter=%d) ---", test_name, warmup, iterations)
 
         # Warm-up
         for _ in range(warmup):
-            func(driver)
+            func(db)
 
         # Collect engine metrics before
-        metrics_before = driver.get_metrics()
+        driver = getattr(db, "driver", db)
+        metrics_before = driver.get_metrics() if hasattr(driver, "get_metrics") else {}
 
         # Measured iterations
         for i in range(1, iterations + 1):
-            observer.measure(test_name, i, func, driver)
+            observer.measure(test_name, i, func, db)
             logger.debug("  iteration %d/%d done", i, iterations)
 
         # Collect engine metrics after
-        metrics_after = driver.get_metrics()
+        metrics_after = driver.get_metrics() if hasattr(driver, "get_metrics") else {}
 
         result = observer.create_result(test_name, iterations, metrics_before, metrics_after)
         avg_ms = (
@@ -155,6 +148,41 @@ class BenchmarkRunner:
             else 0
         )
         logger.info("  avg = %.4f ms", avg_ms)
+
+    @classmethod
+    def _build_table_def(cls, table_name: str, model_cls: Any) -> Dict[str, Any]:
+        columns = []
+        relations = []
+        model_fields = getattr(model_cls, "model_fields", {})
+        for field_name, field_info in model_fields.items():
+            ann = field_info.annotation
+            origin = get_origin(ann)
+            args = get_args(ann)
+
+            # Support for nested models like List[Item]
+            if origin is list and args and hasattr(args[0], "model_fields"):
+                relations.append({
+                    "name": field_name,
+                    "type": "one_to_many",
+                    "inner_model": args[0]
+                })
+            # Support for one-to-one nested BaseModel child
+            elif hasattr(ann, "model_fields"):
+                relations.append({
+                    "name": field_name,
+                    "type": "one_to_one",
+                    "inner_model": ann
+                })
+            else:
+                columns.append(
+                    {
+                        "name": field_name,
+                        "python_type": getattr(ann, "__name__", str(ann)),
+                        "nullable": not field_info.is_required(),
+                        "primary_key": field_name == "id",
+                    }
+                )
+        return {"name": table_name, "columns": columns, "relations": relations, "model": model_cls}
 
     # ------------------------------------------------------------------
     # Helpers
@@ -175,5 +203,11 @@ class BenchmarkRunner:
             params["user"] = env.get("MONGO_INITDB_ROOT_USERNAME", "bench")
             params["password"] = env.get("MONGO_INITDB_ROOT_PASSWORD", "bench")
             params["dbname"] = env.get("MONGO_INITDB_DATABASE", "benchdb")
+        elif engine_type == "mysql":
+            params["user"] = env.get("MYSQL_USER", "bench")
+            params["password"] = env.get("MYSQL_PASSWORD", "bench")
+            params["dbname"] = env.get("MYSQL_DATABASE", "benchdb")
+        elif engine_type == "couchdb":
+            params["user"] = env.get("COUCHDB_USER", "bench")
+            params["password"] = env.get("COUCHDB_PASSWORD", "bench")
         return params
-

@@ -5,7 +5,9 @@ MongoDB driver – concrete implementation of DatabaseDriverInterface.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union
+import os
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from pymongo import MongoClient
 
@@ -21,7 +23,11 @@ class MongoDriver(DatabaseDriverInterface):
         super().__init__(engine_name, connection_params)
         self._client: Optional[MongoClient] = None
         self._db: Any = None
+        self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     def connect(self) -> None:
         p = self.connection_params
         host = p.get("host", "127.0.0.1")
@@ -33,7 +39,6 @@ class MongoDriver(DatabaseDriverInterface):
         uri = f"mongodb://{user}:{password}@{host}:{port}/{dbname}?authSource=admin"
         self._client = MongoClient(uri)
         self._db = self._client[dbname]
-        # Force a round-trip to verify the connection
         self._client.admin.command("ping")
         logger.info("Connected to MongoDB on port %s", port)
 
@@ -42,34 +47,15 @@ class MongoDriver(DatabaseDriverInterface):
             self._client.close()
             logger.info("Disconnected from MongoDB")
 
-    @property
-    def db(self):
-        """Expose the native database handle for callable queries."""
-        return self._db
+    def create_schema(self, table_defs: List[Dict[str, Any]]) -> None:
+        pass
 
-    def execute(
-        self,
-        query: Union[str, Callable],
-        params: Optional[Any] = None,
-    ) -> Any:
-        if callable(query):
-            return query(self._db)
-        raise TypeError(
-            "MongoDriver.execute() expects a callable, not a raw string. "
-            "Pass a function like:  lambda db: db.collection.find({...})"
-        )
+    def create_index(self, table_name: str, column_name: str) -> None:
+        pass
 
-    def execute_many(
-        self,
-        query: Union[str, Callable],
-        seq_of_params: List[Any],
-    ) -> None:
-        if callable(query):
-            return query(self._db, seq_of_params)
-        raise TypeError(
-            "MongoDriver.execute_many() expects a callable."
-        )
-
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
     def get_metrics(self) -> Dict[str, Any]:
         assert self._db is not None
         stats = self._db.command("serverStatus")
@@ -81,3 +67,49 @@ class MongoDriver(DatabaseDriverInterface):
             ),
         }
 
+    # ------------------------------------------------------------------
+    # Facade Support
+    # ------------------------------------------------------------------
+    def insert(self, table_name: str, entity: Any) -> Any:
+        data = entity.model_dump() if hasattr(entity, "model_dump") else dict(entity)
+        # Ensure 'id' is mapped to '_id' for mongo or left as is depending on design.
+        # But for compatibility we will push as is.
+        self._db[table_name].insert_one(data)
+
+    def insert_many(self, table_name: str, entities: List[Any]) -> Any:
+        data_list = []
+        for entity in entities:
+            data = entity.model_dump() if hasattr(entity, "model_dump") else dict(entity)
+            data_list.append(data)
+        if data_list:
+            self._db[table_name].insert_many(data_list)
+        return
+
+    def update(self, table_name: str, filter: Dict, update_data: Dict) -> Any:
+        return self._db[table_name].update_one(filter, {"$set": update_data})
+
+    def update_many(self, table_name: str, filter: Dict, update_data: Dict) -> Any:
+        return self._db[table_name].update_many(filter, {"$set": update_data})
+
+    def delete(self, table_name: str, filter: Dict) -> Any:
+        return self._db[table_name].delete_one(filter)
+
+    def delete_many(self, table_name: str, filter: Dict) -> Any:
+        return self._db[table_name].delete_many(filter)
+
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+        cursor = self._db[table_name].find(filter)
+        if use_explain:
+            os.makedirs("results/explain_logs", exist_ok=True)
+            log_path = f"results/explain_logs/mongodb_{self.run_timestamp}.txt"
+
+            with open(log_path, "a") as f:
+                f.write(f"--- EXPLAIN TARGET: {table_name} filter: {filter} ---\n")
+                f.write(f"{cursor.explain()}\n")
+        return list(cursor)
+
+    def find_all(self, table_name: str) -> Any:
+        return list(self._db[table_name].find())
+
+    def count(self, table_name: str, filter: Optional[Dict] = None) -> int:
+        return self._db[table_name].count_documents(filter or {})
