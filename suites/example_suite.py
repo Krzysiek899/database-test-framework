@@ -11,9 +11,9 @@ from data.schema import User, Order, Address, Product
 
 # Map sizes to number of users (constant, doesn't change)
 DATASET_SIZES = {
-    "small": 500,
-    "medium": 1_000,
-    "large": 10_000,
+    "small": 50,
+    "medium": 100,
+    "large": 200,
 }
 
 

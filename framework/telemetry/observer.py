@@ -76,10 +76,14 @@ class Observer:
         engine_name: str,
         container: Container,
         stats_interval: float = 0.5,
+        indexed: bool = False,
+        dataset_size: str = "medium",
     ) -> None:
         self.engine_name = engine_name
         self.container = container
         self.stats_interval = stats_interval
+        self.indexed = indexed
+        self.dataset_size = dataset_size
 
         self._resource_samples: List[ResourceSample] = []
         self._timing_samples: List[TimingSample] = []
@@ -223,9 +227,12 @@ class Observer:
     # ------------------------------------------------------------------
     def flush_json(self, directory: str) -> str:
         """Write all collected results to a JSON file and return its path."""
-        os.makedirs(directory, exist_ok=True)
+        # Build subdirectory: benchmarks/{dataset_size}/{indexed|unindexed}/
+        indexed_str = "indexed" if self.indexed else "unindexed"
+        subdir = os.path.join(directory, "benchmarks", self.dataset_size, indexed_str)
+        os.makedirs(subdir, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(directory, f"{self.engine_name}_{ts}.json")
+        path = os.path.join(subdir, f"{self.engine_name}_{ts}.json")
         payload = [asdict(r) for r in self._results]
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2, default=str)
@@ -234,9 +241,12 @@ class Observer:
 
     def flush_csv(self, directory: str) -> str:
         """Write timing samples to a flat CSV file."""
-        os.makedirs(directory, exist_ok=True)
+        # Build subdirectory: benchmarks/{dataset_size}/{indexed|unindexed}/
+        indexed_str = "indexed" if self.indexed else "unindexed"
+        subdir = os.path.join(directory, "benchmarks", self.dataset_size, indexed_str)
+        os.makedirs(subdir, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(directory, f"{self.engine_name}_{ts}_timings.csv")
+        path = os.path.join(subdir, f"{self.engine_name}_{ts}_timings.csv")
         if not self._timing_samples:
             return path
         fieldnames = list(asdict(self._timing_samples[0]).keys())

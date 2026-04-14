@@ -110,6 +110,8 @@ class BenchmarkRunner:
                     engine_name,
                     infra.get_container(),
                     stats_interval=self.global_cfg.get("stats_interval_sec", 0.5),
+                    indexed=self.indexed,
+                    dataset_size=self.dataset_size,
                 )
                 observer.start_resource_monitoring()
 

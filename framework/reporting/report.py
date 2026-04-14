@@ -7,6 +7,7 @@ Report generator – reads per-engine JSON results and produces:
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
 import os
@@ -17,15 +18,36 @@ logger = logging.getLogger(__name__)
 
 
 def generate_report(result_files: List[str], output_dir: str) -> None:
-    """Load per-engine JSON results and produce a comparative report."""
+    """
+    Load per-engine JSON results and produce a comparative report.
+    If result_files contains directory paths, recursively find all JSON files.
+    """
+    # Handle both explicit files and directories with new structure
+    resolved_files = []
+    for path in result_files:
+        if os.path.isdir(path):
+            # Find all JSON files recursively (excluding those in explain_logs)
+            for root, dirs, files in os.walk(path):
+                # Skip explain_logs directory
+                if "explain_logs" in dirs:
+                    dirs.remove("explain_logs")
+                for file in files:
+                    if file.endswith(".json") and "_timings" not in file:
+                        resolved_files.append(os.path.join(root, file))
+        else:
+            resolved_files.append(path)
+    
     all_data: Dict[str, List[Dict[str, Any]]] = {}
 
-    for path in result_files:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        for entry in data:
-            engine = entry["engine"]
-            all_data.setdefault(engine, []).append(entry)
+    for path in resolved_files:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            for entry in data:
+                engine = entry["engine"]
+                all_data.setdefault(engine, []).append(entry)
+        except (json.JSONDecodeError, FileNotFoundError) as exc:
+            logger.warning("Failed to load %s: %s", path, exc)
 
     summary = _build_summary(all_data)
     _print_summary(summary)

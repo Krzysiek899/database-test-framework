@@ -41,6 +41,8 @@ class BenchmarkVisualizer:
     def __init__(self, results_dir: str = "results"):
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(exist_ok=True)
+        self.charts_dir = self.results_dir / "charts"
+        self.charts_dir.mkdir(exist_ok=True)
         self.data = []
         self.df = None
 
@@ -207,8 +209,8 @@ class BenchmarkVisualizer:
             
             plt.tight_layout()
             
-            # Save
-            filename = self.results_dir / f"{test_name}.png"
+            # Save to charts directory
+            filename = self.charts_dir / f"{test_name}.png"
             plt.savefig(filename, dpi=300, bbox_inches="tight")
             logger.info("    ✓ Saved: %s", filename)
             plt.close(fig)
