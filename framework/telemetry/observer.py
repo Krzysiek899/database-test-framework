@@ -37,6 +37,8 @@ class TimingSample:
     duration_ns: int
     duration_ms: float
     timestamp: str  # ISO-8601
+    indexed: bool = False
+    dataset_size: str = "medium"  # "small", "medium", "large"
 
 
 @dataclass
@@ -160,7 +162,16 @@ class Observer:
     # ------------------------------------------------------------------
     # Timing helpers
     # ------------------------------------------------------------------
-    def measure(self, test_name: str, iteration: int, func, *args, **kwargs) -> Any:
+    def measure(
+        self,
+        test_name: str,
+        iteration: int,
+        func,
+        *args,
+        indexed: bool = False,
+        dataset_size: str = "medium",
+        **kwargs
+    ) -> Any:
         """Call *func* and record a TimingSample. Returns func's result."""
         start = time.perf_counter_ns()
         result = func(*args, **kwargs)
@@ -176,6 +187,8 @@ class Observer:
             duration_ns=duration_ns,
             duration_ms=round(duration_ns / 1_000_000, 4),
             timestamp=datetime.now(timezone.utc).isoformat(),
+            indexed=indexed,
+            dataset_size=dataset_size,
         )
         self._timing_samples.append(sample)
         return result

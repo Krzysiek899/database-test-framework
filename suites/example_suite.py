@@ -1,6 +1,7 @@
 import random
 from typing import List
 from datetime import datetime, timedelta
+import os
 
 from faker import Faker
 
@@ -8,15 +9,32 @@ from framework.core.decorators import Setup, Suite, Benchmark
 from data.schema import User, Order, Address, Product
 
 
+# Map sizes to number of users (constant, doesn't change)
+DATASET_SIZES = {
+    "small": 500,
+    "medium": 1_000,
+    "large": 10_000,
+}
+
+
 @Setup
 def global_setup(db) -> None:
-    db.orders.create_index("status")
+    # Read configuration dynamically from environment (can change per run)
+    DATASET_SIZE = os.environ.get("DATASET_SIZE", "medium")  # "small", "medium", "large"
+    INDEXED_MODE = os.environ.get("INDEXED_MODE", "false").lower() == "true"
+
+    # Create index ONLY if indexing mode is enabled
+    if INDEXED_MODE:
+        db.orders.create_index("status")
+        print(f"✓ Created index on orders.status")
+    else:
+        print(f"⊘ Skipped index creation (INDEXED_MODE={INDEXED_MODE})")
 
     fake = Faker()
     Faker.seed(42)
     random.seed(42)
 
-    NUM_USERS = 500
+    NUM_USERS = DATASET_SIZES.get(DATASET_SIZE, DATASET_SIZES["medium"])
     ORDERS_PER_USER = (0, 5)
 
     users: List[User] = []

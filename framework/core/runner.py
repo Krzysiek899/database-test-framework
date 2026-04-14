@@ -23,16 +23,35 @@ logger = logging.getLogger(__name__)
 class BenchmarkRunner:
     """Top-level orchestrator."""
 
-    def __init__(self, config_path: str = "config.yaml", suite_modules: Optional[List[str]] = None) -> None:
+    def __init__(self, config_path: str = "config.yaml", suite_modules: Optional[List[str]] = None, indexed: bool = False, dataset_size: str = "small") -> None:
         self.cfg = load_config(config_path)
         self.global_cfg = self.cfg.get("global", {})
         self.results_dir = self.global_cfg.get("results_dir", "results")
         self.all_result_files: List[str] = []
+        self.indexed = indexed
+        self.dataset_size = dataset_size
+        self.suite_modules = suite_modules or []
 
-        # Import suite modules so that @benchmark decorators fire
-        for mod_name in (suite_modules or []):
-            if mod_name not in sys.modules:
-                importlib.import_module(mod_name)
+        # Import/reload suite modules to register decorators
+        self._load_suites()
+
+    def _load_suites(self) -> None:
+        """Load/reload suite modules to register decorators from fresh environment."""
+        # First, reload data.schema to ensure @Table decorators are re-registered
+        if "data.schema" in sys.modules:
+            del sys.modules["data.schema"]
+        importlib.import_module("data.schema")
+        logger.info("Loaded data schema")
+        
+        # Then reload suite modules
+        for mod_name in self.suite_modules:
+            # Remove from sys.modules and reimport to ensure fresh execution
+            # This ensures @Table and @Benchmark decorators are re-evaluated
+            if mod_name in sys.modules:
+                del sys.modules[mod_name]
+            
+            importlib.import_module(mod_name)
+            logger.info("Loaded suite module: %s", mod_name)
 
     # ------------------------------------------------------------------
     # Public
@@ -71,11 +90,15 @@ class BenchmarkRunner:
 
             try:
                 registry = get_registry()
+                logger.debug("Registry tables: %s", [t.name for t in registry.tables])
+                logger.debug("Registry setup: %s", registry.setup is not None)
+                
                 db = driver.get_db_interface() if hasattr(driver, "get_db_interface") else driver
 
                 # Build schema from @Table metadata
                 if hasattr(driver, "create_schema"):
                     table_defs = [self._build_table_def(table.name, table.model) for table in registry.tables]
+                    logger.info("Creating %d tables: %s", len(table_defs), [t["name"] for t in table_defs])
                     driver.create_schema(table_defs)
 
                 # Schema + seed - user defined now
@@ -123,7 +146,8 @@ class BenchmarkRunner:
         warmup = self.global_cfg.get("warmup_iterations", 3)
         iterations = self.global_cfg.get("benchmark_iterations", 10)
 
-        logger.info("--- %s (warmup=%d, iter=%d) ---", test_name, warmup, iterations)
+        logger.info("--- %s (warmup=%d, iter=%d, indexed=%s, size=%s) ---", 
+                   test_name, warmup, iterations, self.indexed, self.dataset_size)
 
         # Warm-up
         for _ in range(warmup):
@@ -135,7 +159,11 @@ class BenchmarkRunner:
 
         # Measured iterations
         for i in range(1, iterations + 1):
-            observer.measure(test_name, i, func, db)
+            observer.measure(
+                test_name, i, func, db,
+                indexed=self.indexed,
+                dataset_size=self.dataset_size
+            )
             logger.debug("  iteration %d/%d done", i, iterations)
 
         # Collect engine metrics after

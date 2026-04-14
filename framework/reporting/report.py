@@ -36,11 +36,6 @@ def generate_report(result_files: List[str], output_dir: str) -> None:
         json.dump(summary, fh, indent=2, default=str)
     logger.info("Comparative JSON saved to %s", summary_path)
 
-    try:
-        _generate_chart(summary, output_dir)
-    except Exception as exc:
-        logger.warning("Chart generation failed (matplotlib may not be available): %s", exc)
-
 def _build_summary(all_data: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
     """Build a dict of {test_name: {engine: stats}}."""
     tests: Dict[str, Dict[str, Any]] = {}
@@ -81,39 +76,4 @@ def _print_summary(summary: Dict[str, Any]) -> None:
                 f"{s['stdev_ms']:>10.4f}"
             )
     print("=" * len(header) + "\n")
-
-
-def _generate_chart(summary: Dict[str, Any], output_dir: str) -> None:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    test_names = list(summary.keys())
-    if not test_names:
-        return
-
-    engines = sorted({e for tests in summary.values() for e in tests})
-    x_pos = list(range(len(test_names)))
-    bar_width = 0.8 / max(len(engines), 1)
-
-    fig, ax = plt.subplots(figsize=(max(10, len(test_names) * 2), 6))
-    for i, engine in enumerate(engines):
-        avgs = [
-            summary[t].get(engine, {}).get("avg_ms", 0) for t in test_names
-        ]
-        positions = [x + i * bar_width for x in x_pos]
-        ax.bar(positions, avgs, bar_width, label=engine)
-
-    ax.set_xlabel("Test")
-    ax.set_ylabel("Average Latency (ms)")
-    ax.set_title("Benchmark Comparison")
-    ax.set_xticks([x + bar_width * (len(engines) - 1) / 2 for x in x_pos])
-    ax.set_xticklabels(test_names, rotation=30, ha="right")
-    ax.legend()
-    fig.tight_layout()
-
-    chart_path = os.path.join(output_dir, "benchmark_comparison.png")
-    fig.savefig(chart_path, dpi=150)
-    plt.close(fig)
-    logger.info("Chart saved to %s", chart_path)
 
