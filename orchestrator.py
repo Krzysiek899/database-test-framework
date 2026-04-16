@@ -74,6 +74,14 @@ def run_orchestrator(
             logger.info("Indexing Mode: %s", index_label)
             logger.info("-" * 70)
 
+            # Skip indexed runs for MongoDB and CouchDB (indexing not implemented)
+            engines_to_run = engines
+            if indexed:
+                engines_to_run = [e for e in engines if e not in ["mongodb", "couchdb"]]
+                if not engines_to_run:
+                    logger.info("⊘ Skipped: MongoDB and CouchDB do not support indexing yet")
+                    continue
+
             try:
                 # Reset registry state before reimporting suites and schemas
                 from framework.core.registry import clear_registry
@@ -92,7 +100,7 @@ def run_orchestrator(
                 )
 
                 # Run benchmarks
-                runner.run(engines=engines)
+                runner.run(engines=engines_to_run)
 
                 # Collect result files
                 all_result_files.extend(runner.all_result_files)

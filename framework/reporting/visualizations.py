@@ -13,25 +13,29 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-import seaborn as sns
-from matplotlib import rcParams
+import plotly.graph_objects as go
+import plotly.io as pio
 
 logger = logging.getLogger(__name__)
 
-# Set consistent style
-sns.set_style("whitegrid")
-rcParams["figure.figsize"] = (12, 7)
-rcParams["font.size"] = 10
-
 # Fixed colors per engine (consistent across all charts)
 ENGINE_COLORS = {
-    "postgres": "#1f77b4",   # blue
-    "mongodb": "#ff7f0e",    # orange
-    "couchdb": "#2ca02c",    # green
-    "mysql": "#d62728",      # red
+    "postgres": "#1f77b4",           # blue unindexed
+    "postgres_indexed": "#6bb1e3",  # darker blue indexed
+    "mysql": "#d62728",              # red unindexed
+    "mysql_indexed": "#ed7474",      # darker red indexed
+    "mongodb": "#ff7f0e",            # orange unindexed
+    "mongodb_indexed": "#f5b57d",    # darker orange indexed
+    "couchdb": "#2ca02c",            # green unindexed
+    "couchdb_indexed": "#91cb8a",    # darker green indexed
+}
+
+# Map dataset size labels to actual row counts
+DATASET_SIZE_MAPPING = {
+    "small": 50,
+    "medium": 100,
+    "large": 200,
 }
 
 
@@ -75,60 +79,7 @@ class BenchmarkVisualizer:
         self.df = pd.DataFrame(self.data)
         logger.info("Loaded %d timing samples", len(self.df))
 
-    def _compute_bar_layout(
-        self,
-        test_data: pd.DataFrame,
-    ) -> Dict[Tuple[str, str, bool], Tuple[float, float, str]]:
-        """
-        Compute bar positions for a single test across all combinations.
-        
-        Returns dict: (dataset_size, engine, indexed) → (x_position, bar_width, color)
-        """
-        # Get unique dataset sizes, engines, indexed values
-        dataset_sizes = sorted(test_data["dataset_size"].unique())
-        engines = sorted(test_data["engine"].unique())
-        has_indexed = test_data["indexed"].sum() > 0 and (~test_data["indexed"]).sum() > 0
-        
-        layout = {}
-        bar_width = 0.08
-        gap_within_group = 0.02
-        gap_between_groups = 0.15
-        
-        current_x = 0
-        
-        for size_idx, size in enumerate(dataset_sizes):
-            # Space for this group
-            if has_indexed:
-                # 8 bars: 4 for unindexed, 4 for indexed
-                num_bars = 8
-            else:
-                # 4 bars for engines
-                num_bars = 4
-            
-            group_width = num_bars * bar_width + (num_bars - 1) * gap_within_group
-            group_center = current_x + group_width / 2
-            
-            # Record group center for x-axis label
-            if not hasattr(self, "_size_label_positions"):
-                self._size_label_positions = {}
-            self._size_label_positions[size] = group_center
-            
-            bar_x = current_x
-            
-            for engine in engines:
-                # Unindexed bar
-                layout[(size, engine, False)] = (bar_x, bar_width, ENGINE_COLORS.get(engine, "#999999"))
-                bar_x += bar_width + gap_within_group
-                
-                # Indexed bar (if data exists)
-                if has_indexed:
-                    layout[(size, engine, True)] = (bar_x, bar_width, ENGINE_COLORS.get(engine, "#999999"))
-                    bar_x += bar_width + gap_within_group
-            
-            # Gap between groups
-            current_x = bar_x + gap_between_groups
-        
-        return layout
+
 
     def generate_per_test_charts(self) -> None:
         """Generate one bar chart per test showing performance across all engines and data sizes."""
@@ -147,10 +98,6 @@ class BenchmarkVisualizer:
                 logger.warning("    ⊘ No data for test %s", test_name)
                 continue
             
-            # Compute layout
-            self._size_label_positions = {}
-            layout = self._compute_bar_layout(test_data)
-            
             # Get aggregated data
             agg_data = (
                 test_data.groupby(["dataset_size", "engine", "indexed"])["duration_ms"]
@@ -158,62 +105,137 @@ class BenchmarkVisualizer:
                 .reset_index()
             )
             
-            # Create figure
-            fig, ax = plt.subplots(figsize=(14, 7))
+            # Create Plotly figure
+            fig = go.Figure()
             
-            # Plot bars
-            legend_items = []
-            legend_labels = []
+            # Get unique dataset sizes and engines for grouping
+            # Sort dataset sizes by actual row count, not alphabetically
+            unique_sizes = agg_data["dataset_size"].unique()
+            dataset_sizes = sorted(unique_sizes, key=lambda x: DATASET_SIZE_MAPPING.get(x, 0))
+            engines = sorted(agg_data["engine"].unique())
             
-            for (size, engine, indexed), (x_pos, width, color) in layout.items():
-                # Find data for this combination
-                matching = agg_data[
-                    (agg_data["dataset_size"] == size) &
-                    (agg_data["engine"] == engine) &
-                    (agg_data["indexed"] == indexed)
-                ]
+            # Calculate x-axis positions dynamically based on actual data
+            # (this handles cases where some engine/indexed combinations don't exist)
+            bar_width = 0.25
+            gap_between_bars = 0.03  # gap between bars
+            gap_between_groups = 1.2   # gap between dataset size groups
+            
+            x_position_map = {}  # (size, engine, indexed) -> x_pos
+            x_group_centers = {}  # size -> x_center for tick labels
+            x_counter = 0
+            
+            for size_idx, size in enumerate(dataset_sizes):
+                group_start_x = x_counter
+                size_data = agg_data[agg_data["dataset_size"] == size]
                 
-                if matching.empty:
-                    continue
+                # Get all (engine, indexed) combinations that exist for this size
+                existing_combinations = sorted(
+                    size_data[["engine", "indexed"]].drop_duplicates().values.tolist(),
+                    key=lambda x: (x[0], x[1])  # sort by engine name, then indexed
+                )
                 
-                duration = matching["duration_ms"].values[0]
+                # Distribute bars evenly for this size group
+                for combo_idx, (engine, indexed) in enumerate(existing_combinations):
+                    x_pos = x_counter
+                    x_position_map[(size, engine, indexed)] = x_pos
+                    x_counter += bar_width + gap_between_bars
                 
-                # Determine legend label and alpha
-                has_indexed_data = (agg_data["indexed"] == True).any()
-                if has_indexed_data:
-                    label = f"{engine} {'(indexed)' if indexed else '(unindexed)'}"
-                    alpha = 0.6 if indexed else 0.9
-                else:
-                    label = engine
-                    alpha = 0.9
+                # Remove last gap and record group center for x-axis tick
+                x_counter -= gap_between_bars
+                group_end_x = x_counter
+                x_group_centers[size] = (group_start_x + group_end_x) / 2
                 
-                bar = ax.bar(x_pos, duration, width=width, color=color, alpha=alpha, edgecolor="black", linewidth=0.5)
+                # Gap between groups
+                x_counter += gap_between_groups
+            
+            # Create traces for each (engine, indexed) combination that exists in data
+            all_combinations = sorted(
+                agg_data[["engine", "indexed"]].drop_duplicates().values.tolist(),
+                key=lambda x: (x[0], x[1])  # sort by engine name, then indexed
+            )
+            
+            for engine, indexed in all_combinations:
+                engine_indexed_data = agg_data[(agg_data["engine"] == engine) & (agg_data["indexed"] == indexed)]
+                engine_indexed_data = engine_indexed_data.sort_values("dataset_size")
                 
-                # Add to legend (only first occurrence per label)
-                if label not in legend_labels:
-                    legend_items.append(bar)
-                    legend_labels.append(label)
+                x_vals = []
+                y_vals = []
+                
+                for size in dataset_sizes:
+                    matching = engine_indexed_data[engine_indexed_data["dataset_size"] == size]
+                    if not matching.empty:
+                        x_vals.append(x_position_map[(size, engine, indexed)])
+                        y_vals.append(matching["duration_ms"].values[0])
+                
+                # Determine label
+                label = f"{engine} (indexed)" if indexed else f"{engine}"
+                color_key = f"{engine}_indexed" if indexed else engine
+                
+                fig.add_trace(go.Bar(
+                    x=x_vals,
+                    y=y_vals,
+                    name=label,
+                    marker=dict(color=ENGINE_COLORS.get(color_key, "#999999"), cornerradius=10),
+                    text=[f"{v:.2f}" for v in y_vals],
+                    textposition="outside",
+                    textfont=dict(size=8),
+                    width=bar_width,
+                ))
             
-            # Set x-axis
-            dataset_sizes = sorted(test_data["dataset_size"].unique())
-            if dataset_sizes and len(self._size_label_positions) > 0:
-                ax.set_xticks([self._size_label_positions[size] for size in dataset_sizes])
-                ax.set_xticklabels(dataset_sizes)
+            # Update layout
+            fig.update_layout(
+                title=dict(text=test_name, font=dict(size=16, color="black", family="Arial")),
+                xaxis=dict(
+                    title="Dataset Size (rows)",
+                    ticktext=[str(DATASET_SIZE_MAPPING.get(size, size)) for size in dataset_sizes],
+                    tickvals=[x_group_centers[size] for size in dataset_sizes],
+                    showgrid=False,
+                ),
+                yaxis=dict(
+                    title="Duration (ms)",
+                    type="log",
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor="rgba(200,200,200,0.3)",
+                ),
+                barmode="overlay",
+                width=1400,
+                height=700,
+                showlegend=True,
+                legend=dict(
+                    x=0.5,
+                    y=-0.15,
+                    xanchor="center",
+                    yanchor="top",
+                    orientation="h",
+                    bgcolor="rgba(255,255,255,0)",
+                    bordercolor="rgba(0,0,0,0)",
+                    borderwidth=0,
+                ),
+                font=dict(size=10, family="Arial"),
+                plot_bgcolor="white",
+                margin=dict(l=70, r=50, t=80, b=120),
+            )
             
-            # Labels and title
-            ax.set_xlabel("Dataset Size", fontsize=11, fontweight="bold")
-            ax.set_ylabel("Duration (ms)", fontsize=11, fontweight="bold")
-            ax.set_title(test_name, fontsize=13, fontweight="bold")
-            ax.legend(legend_items, legend_labels, loc="upper left", fontsize=9)
-            ax.grid(axis="y", alpha=0.3, linestyle="--")
+            fig.update_yaxes(
+                type="log",
+                tickmode="array",
+                tickvals=[1, 10, 100, 1000, 10000, 100000],
+                ticktext=["1", "10", "100", "1k", "10k", "100k"]
+            )
             
-            plt.tight_layout()
-            
-            # Save to charts directory
+            # Save to PNG
             filename = self.charts_dir / f"{test_name}.png"
-            plt.savefig(filename, dpi=300, bbox_inches="tight")
-            logger.info("    ✓ Saved: %s", filename)
-            plt.close(fig)
+            try:
+                fig.write_image(
+                    str(filename),
+                    width=1400,
+                    height=700,
+                    scale=2,
+                )
+                logger.info("    ✓ Saved: %s", filename)
+            except Exception as exc:
+                logger.error("    ✗ Failed to save %s: %s", filename, exc)
 
     def generate_summary_csv(self) -> None:
         """Generate summary metrics CSV."""
