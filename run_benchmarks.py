@@ -24,6 +24,7 @@ from pathlib import Path
 from framework.core.runner import BenchmarkRunner
 from framework.core.registry import clear_registry
 from framework.reporting.visualizations import generate_all_visualizations
+from framework.reporting.html_generator import HTMLReportGenerator
 
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,15 @@ def run_orchestrator(
     except Exception as exc:
         logger.error("✗ Visualization generation failed: %s", exc)
         raise
+# Generate HTML report
+    try:
+        html_gen = HTMLReportGenerator(results_dir=str(results_dir))
+        html_gen.generate()
+    except Exception as exc:
+        logger.error("✗ HTML report generation failed: %s", exc)
+        raise
 
+    
     logger.info("\n" + "=" * 70)
     logger.info("ORCHESTRATION COMPLETE")
     logger.info("Results saved to: %s", results_dir.absolute())
