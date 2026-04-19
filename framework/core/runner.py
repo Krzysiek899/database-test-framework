@@ -98,7 +98,9 @@ class BenchmarkRunner:
                 # Build schema from @Table metadata
                 if hasattr(driver, "create_schema"):
                     table_defs = [self._build_table_def(table.name, table.model) for table in registry.tables]
-                    logger.info("Creating %d tables: %s", len(table_defs), [t["name"] for t in table_defs])
+                    # Only log table creation for relational databases
+                    if engine_cfg["engine_type"] in ["mysql", "postgres"]:
+                        logger.info("Creating %d tables: %s", len(table_defs), [t["name"] for t in table_defs])
                     driver.create_schema(table_defs)
 
                 # Schema + seed - user defined now

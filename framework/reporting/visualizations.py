@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from suites.example_suite import DATASET_SIZES
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -20,22 +21,26 @@ import plotly.io as pio
 logger = logging.getLogger(__name__)
 
 # Fixed colors per engine (consistent across all charts)
+# Order: postgres, postgres_indexed, mysql, mysql_indexed, mongodb, mongodb_indexed, couchdb, couchdb_indexed
 ENGINE_COLORS = {
-    "postgres": "#1f77b4",           # blue unindexed
-    "postgres_indexed": "#6bb1e3",  # darker blue indexed
-    "mysql": "#d62728",              # red unindexed
-    "mysql_indexed": "#ed7474",      # darker red indexed
-    "mongodb": "#ff7f0e",            # orange unindexed
-    "mongodb_indexed": "#f5b57d",    # darker orange indexed
-    "couchdb": "#2ca02c",            # green unindexed
-    "couchdb_indexed": "#91cb8a",    # darker green indexed
+    "postgres": "#FFB900",           
+    "postgres_indexed": "#05DF72",   
+    "mysql": "#00D3F2",              
+    "mysql_indexed": "#51A2FF",      
+    "mongodb": "#A684FF",            
+    "mongodb_indexed": "#ED6AFF",    
+    "couchdb": "#FF637E",            
+    "couchdb_indexed": "#FF8904",    
 }
+
+# Define standard engine order for consistent visualization
+ENGINE_ORDER = ["postgres", "mysql", "mongodb", "couchdb"]
 
 # Map dataset size labels to actual row counts
 DATASET_SIZE_MAPPING = {
-    "small": 50,
-    "medium": 100,
-    "large": 200,
+    "small": DATASET_SIZES["small"],
+    "medium": DATASET_SIZES["medium"],
+    "large": DATASET_SIZES["large"],
 }
 
 
@@ -112,7 +117,7 @@ class BenchmarkVisualizer:
             # Sort dataset sizes by actual row count, not alphabetically
             unique_sizes = agg_data["dataset_size"].unique()
             dataset_sizes = sorted(unique_sizes, key=lambda x: DATASET_SIZE_MAPPING.get(x, 0))
-            engines = sorted(agg_data["engine"].unique())
+            engines = agg_data["engine"].unique()
             
             # Calculate x-axis positions dynamically based on actual data
             # (this handles cases where some engine/indexed combinations don't exist)
@@ -129,13 +134,18 @@ class BenchmarkVisualizer:
                 size_data = agg_data[agg_data["dataset_size"] == size]
                 
                 # Get all (engine, indexed) combinations that exist for this size
-                existing_combinations = sorted(
-                    size_data[["engine", "indexed"]].drop_duplicates().values.tolist(),
-                    key=lambda x: (x[0], x[1])  # sort by engine name, then indexed
+                # Sort by ENGINE_ORDER: postgres, mysql, mongodb, couchdb (each with unindexed first, then indexed)
+                existing_for_size = set(
+                    tuple(row) for row in size_data[["engine", "indexed"]].drop_duplicates().values.tolist()
                 )
+                combinations_for_size = []
+                for engine in ENGINE_ORDER:
+                    for indexed in [False, True]:
+                        if (engine, indexed) in existing_for_size:
+                            combinations_for_size.append((engine, indexed))
                 
                 # Distribute bars evenly for this size group
-                for combo_idx, (engine, indexed) in enumerate(existing_combinations):
+                for combo_idx, (engine, indexed) in enumerate(combinations_for_size):
                     x_pos = x_counter
                     x_position_map[(size, engine, indexed)] = x_pos
                     x_counter += bar_width + gap_between_bars
@@ -149,10 +159,16 @@ class BenchmarkVisualizer:
                 x_counter += gap_between_groups
             
             # Create traces for each (engine, indexed) combination that exists in data
-            all_combinations = sorted(
-                agg_data[["engine", "indexed"]].drop_duplicates().values.tolist(),
-                key=lambda x: (x[0], x[1])  # sort by engine name, then indexed
+            # Sort by ENGINE_ORDER: postgres, mysql, mongodb, couchdb (each with unindexed first, then indexed)
+            existing_combinations = set(
+                tuple(row) for row in agg_data[["engine", "indexed"]].drop_duplicates().values.tolist()
             )
+            
+            all_combinations = []
+            for engine in ENGINE_ORDER:
+                for indexed in [False, True]:
+                    if (engine, indexed) in existing_combinations:
+                        all_combinations.append((engine, indexed))
             
             for engine, indexed in all_combinations:
                 engine_indexed_data = agg_data[(agg_data["engine"] == engine) & (agg_data["indexed"] == indexed)]
@@ -178,15 +194,17 @@ class BenchmarkVisualizer:
                     marker=dict(color=ENGINE_COLORS.get(color_key, "#999999"), cornerradius=10),
                     text=[f"{v:.2f}" for v in y_vals],
                     textposition="outside",
-                    textfont=dict(size=8),
+                    textfont=dict(size=10),
                     width=bar_width,
                 ))
             
             # Update layout
+            # Format test name: select_first_user -> Select first user
+            formatted_test_name = test_name.replace("_", " ").title()
             fig.update_layout(
-                title=dict(text=test_name, font=dict(size=16, color="black", family="Arial")),
+                title=dict(text=formatted_test_name, font=dict(size=16, color="black", family="Arial")),
                 xaxis=dict(
-                    title="Dataset Size (rows)",
+                    title="Dataset Size",
                     ticktext=[str(DATASET_SIZE_MAPPING.get(size, size)) for size in dataset_sizes],
                     tickvals=[x_group_centers[size] for size in dataset_sizes],
                     showgrid=False,
@@ -212,7 +230,7 @@ class BenchmarkVisualizer:
                     bordercolor="rgba(0,0,0,0)",
                     borderwidth=0,
                 ),
-                font=dict(size=10, family="Arial"),
+                font=dict(size=12, family="Arial"),
                 plot_bgcolor="white",
                 margin=dict(l=70, r=50, t=80, b=120),
             )

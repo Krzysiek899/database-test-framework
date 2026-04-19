@@ -33,8 +33,8 @@ class DatabaseDriverInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_index(self, table_name: str, column_name: str) -> None:
-        """Create an index on the given column."""
+    def create_index(self, table_name: str, column_name: str, **kwargs) -> None:
+        """Create an index on the given column. Supports 'unique' kwarg for unique indices."""
         pass
 
     # ------------------------------------------------------------------

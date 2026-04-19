@@ -50,8 +50,18 @@ class MongoDriver(DatabaseDriverInterface):
     def create_schema(self, table_defs: List[Dict[str, Any]]) -> None:
         pass
 
-    def create_index(self, table_name: str, column_name: str) -> None:
-        pass
+    def create_index(self, table_name: str, column_name: str, **kwargs) -> None:
+        """Create index on given column. Supports unique=True for unique indices."""
+        if self._db is None:
+            logger.warning("Not connected to MongoDB. Skipping index creation.")
+            return
+        
+        unique = kwargs.get("unique", False)
+        try:
+            self._db[table_name].create_index(column_name, unique=unique)
+            logger.info("Created %s index on %s.%s", "unique" if unique else "regular", table_name, column_name)
+        except Exception as e:
+            logger.warning("Failed to create index on %s.%s: %s", table_name, column_name, e)
 
     # ------------------------------------------------------------------
     # Metrics

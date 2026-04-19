@@ -50,7 +50,7 @@ def run_orchestrator(
     logger.info("=" * 70)
 
     suite_modules = suite_modules or ["suites.example_suite"]
-    engines = engines or ["postgres", "mongodb", "couchdb"]
+    engines = engines or ["postgres", "mongodb", "mysql"]
 
     results_dir = Path("results")
     results_dir.mkdir(exist_ok=True)
@@ -74,12 +74,11 @@ def run_orchestrator(
             logger.info("Indexing Mode: %s", index_label)
             logger.info("-" * 70)
 
-            # Skip indexed runs for MongoDB and CouchDB (indexing not implemented)
             engines_to_run = engines
             if indexed:
-                engines_to_run = [e for e in engines if e not in ["mongodb", "couchdb"]]
+                engines_to_run = [e for e in engines if e not in ["couchdb"]]
                 if not engines_to_run:
-                    logger.info("⊘ Skipped: MongoDB and CouchDB do not support indexing yet")
+                    logger.info("⊘ Skipped: CouchDB do not support indexing yet")
                     continue
 
             try:

@@ -93,7 +93,7 @@ class RelationalMapper:
             self.metadata.create_all(self.engine)
             logger.info("Recreated schema with SQLAlchemy Core")
 
-    def create_index(self, table_name: str, column_name: str) -> None:
+    def create_index(self, table_name: str, column_name: str, **kwargs) -> None:
         if table_name not in self.metadata.tables:
             logger.warning("Table %s not found. Skipping index creation.", table_name)
             return
@@ -104,8 +104,11 @@ class RelationalMapper:
             logger.warning("Column %s not found in table %s. Skipping index creation.", column_name, table_name)
             return
 
-        idx = Index(f"ix_{table_name}_{column_name}", table.c[column_name])
-        idx.create(self.engine)
+        unique = kwargs.get("unique", False)
+        idx = Index(f"ix_{table_name}_{column_name}", table.c[column_name], unique=unique)
+        if self.engine:
+            idx.create(self.engine)
+            logger.info("Created %s index on %s.%s", "unique" if unique else "regular", table_name, column_name)
 
     def _build_where_clause(self, table, filter_dict: Dict):
         conditions = []
