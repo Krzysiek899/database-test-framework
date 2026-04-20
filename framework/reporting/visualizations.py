@@ -205,7 +205,7 @@ class BenchmarkVisualizer:
                 title=dict(text=formatted_test_name, font=dict(size=16, color="black", family="Arial")),
                 xaxis=dict(
                     title="Dataset Size",
-                    ticktext=[str(DATASET_SIZE_MAPPING.get(size, size)) for size in dataset_sizes],
+                    ticktext=[f"{DATASET_SIZE_MAPPING.get(size, size):,}".replace(",", " ") for size in dataset_sizes],
                     tickvals=[x_group_centers[size] for size in dataset_sizes],
                     showgrid=False,
                 ),

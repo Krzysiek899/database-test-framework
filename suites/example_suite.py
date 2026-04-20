@@ -518,3 +518,253 @@ class OnlineLearningPlatformSuite:
         db.payments.delete_many({"user_id": unique_user_id, "status": "failed"})
         
         return len(payments_to_delete)
+
+    # ===== ADDITIONAL CREATE SCENARIOS (3 more benchmarks) =====
+
+    @Benchmark("create_payment_bulk")
+    def create_payment_bulk(self, db):
+        """CREATE: Batch insert 5,000 Payment records.
+        Tests bulk write performance for financial transaction records."""
+        payments = []
+        unique_base = random.randint(20000000, 29999999)
+        
+        for i in range(5000):
+            payment = Payment(
+                payment_id=unique_base + i,
+                user_id=random.randint(1, 100),
+                course_id=random.randint(1, 50),
+                amount=round(random.uniform(9.99, 299.99), 2),
+                status=random.choice(["pending", "completed", "failed"])
+            )
+            payments.append(payment)
+        
+        db.payments.insert_many(payments)
+        return len(payments)
+
+    @Benchmark("create_course_with_modules_batch")
+    def create_course_with_modules_batch(self, db):
+        """CREATE: Batch insert 100 Courses, each with 3 embedded modules and 9 lessons.
+        Tests embedding depth and performance at scale."""
+        courses = []
+        unique_base = random.randint(30000000, 39999999)
+        lesson_id_counter = unique_base
+        
+        for course_idx in range(100):
+            modules = []
+            course_id = unique_base + course_idx
+            
+            for module_idx in range(3):
+                lessons = []
+                for lesson_idx in range(3):
+                    lesson = Lesson(
+                        lesson_id=lesson_id_counter,
+                        module_id=course_id * 10 + module_idx,
+                        title=f"Lesson {lesson_idx}",
+                        type=random.choice(["video", "text", "interactive"]),
+                        content_ref=f"content/{course_id}/{module_idx}/{lesson_idx}",
+                        duration_sec=random.randint(300, 3600),
+                        order_index=lesson_idx
+                    )
+                    lessons.append(lesson)
+                    lesson_id_counter += 1
+                
+                module = Module(
+                    module_id=course_id * 10 + module_idx,
+                    course_id=course_id,
+                    title=f"Module {module_idx}",
+                    order_index=module_idx,
+                    lessons=lessons
+                )
+                modules.append(module)
+            
+            course = Course(
+                course_id=course_id,
+                title=f"Batch Course {course_idx}",
+                instructor_id=random.randint(1, 100),
+                created_at=datetime.now(),
+                modules=modules
+            )
+            courses.append(course)
+        
+        db.courses.insert_many(courses)
+        return len(courses)
+
+    @Benchmark("create_lesson")
+    def create_lesson(self, db):
+        """CREATE: Batch insert 1,000 simple Lesson records (flat structure).
+        Measures performance of non-embedded INSERT."""
+        lessons = []
+        unique_base = random.randint(40000000, 49999999)
+        
+        for i in range(1000):
+            lesson = Lesson(
+                lesson_id=unique_base + i,
+                module_id=random.randint(1, 100),
+                title=f"Lesson {i}",
+                type=random.choice(["video", "text", "quiz"]),
+                content_ref=f"content/lesson/{i}",
+                duration_sec=random.randint(300, 3600),
+                order_index=i % 20
+            )
+            lessons.append(lesson)
+        
+        db.lessons.insert_many(lessons)
+        return len(lessons)
+
+    # ===== ADDITIONAL READ SCENARIOS (3 more benchmarks) =====
+
+    @Benchmark("read_enrolled_courses_by_user")
+    def read_enrolled_courses_by_user(self, db):
+        """READ: Find all courses a specific user is enrolled in.
+        Multi-table join pattern with EXPLAIN logging."""
+        result = db.enrollments.select({"user_id": 100}, use_explain=True)
+        return len(result) if result else 0
+
+    @Benchmark("read_payments_by_status")
+    def read_payments_by_status(self, db):
+        """READ: Find all completed payments (status filtering).
+        Pattern that benefits from single-column index."""
+        result = db.payments.select({"status": "completed"}, use_explain=True)
+        return len(result) if result else 0
+
+    @Benchmark("read_quiz_attempts_score_range")
+    def read_quiz_attempts_score_range(self, db):
+        """READ: Find quiz attempts by user and score threshold.
+        Multi-column filter with numeric comparison."""
+        result = db.quiz_attempts.select({"user_id": 50}, use_explain=True)
+        return len(result) if result else 0
+
+    # ===== ADDITIONAL UPDATE SCENARIOS (3 more benchmarks) =====
+
+    @Benchmark("update_lesson_order_batch")
+    def update_lesson_order_batch(self, db):
+        """UPDATE: Batch update lesson order indexes for a module.
+        Tests bulk UPDATE on subset of records."""
+        target_module_id = 50
+        
+        # Update all lessons in module with order_index = 10
+        db.lessons.update_many(
+            {"module_id": target_module_id},
+            {"order_index": 10}
+        )
+        
+        count = db.lessons.count({"module_id": target_module_id})
+        return count
+
+    @Benchmark("update_course_instructor")
+    def update_course_instructor(self, db):
+        """UPDATE: Change instructor for a specific course.
+        Single-record update by course_id."""
+        unique_course_id = random.randint(50000000, 50999999)
+        
+        # Create a test course first
+        course = Course(
+            course_id=unique_course_id,
+            title="Course for instructor update",
+            instructor_id=1,
+            created_at=datetime.now(),
+            modules=[]
+        )
+        db.courses.insert(course)
+        
+        # Update instructor
+        db.courses.update(
+            {"course_id": unique_course_id},
+            {"instructor_id": 999}
+        )
+        
+        return 1
+
+    @Benchmark("update_quiz_title_batch")
+    def update_quiz_title_batch(self, db):
+        """UPDATE: Batch update quiz titles for a course.
+        Tests UPDATE with string concatenation/modification."""
+        target_course_id = 100
+        
+        db.quizzes.update_many(
+            {"course_id": target_course_id},
+            {"title": "Updated Quiz Title"}
+        )
+        
+        count = db.quizzes.count({"course_id": target_course_id})
+        return count
+
+    # ===== ADDITIONAL DELETE SCENARIOS (3 more benchmarks) =====
+
+    @Benchmark("delete_quiz_by_course")
+    def delete_quiz_by_course(self, db):
+        """DELETE: Delete all quizzes for a specific course.
+        Tests cascading DELETE pattern."""
+        unique_course_id = random.randint(51000000, 51999999)
+        
+        # Create test quizzes
+        quizzes = []
+        for i in range(50):
+            quiz = Quiz(
+                quiz_id=random.randint(10000000, 99999999),
+                course_id=unique_course_id,
+                title=f"Quiz {i}",
+                questions=[]
+            )
+            quizzes.append(quiz)
+        
+        db.quizzes.insert_many(quizzes)
+        
+        # BENCHMARK: Delete all quizzes for this course
+        db.quizzes.delete_many({"course_id": unique_course_id})
+        
+        return 50
+
+    @Benchmark("delete_enrollment_by_course")
+    def delete_enrollment_by_course(self, db):
+        """DELETE: Delete all enrollments for a specific course.
+        Tests foreign key pattern deletion."""
+        unique_course_id = random.randint(52000000, 52999999)
+        
+        # Create test enrollments
+        enrollments = []
+        for i in range(200):
+            enrollment = Enrollment(
+                enrollment_id=random.randint(10000000, 99999999),
+                user_id=random.randint(1, 100),
+                course_id=unique_course_id,
+                progress=random.uniform(0, 100)
+            )
+            enrollments.append(enrollment)
+        
+        db.enrollments.insert_many(enrollments)
+        
+        # BENCHMARK: Delete all enrollments for this course
+        db.enrollments.delete_many({"course_id": unique_course_id})
+        
+        return 200
+
+    @Benchmark("delete_old_quiz_questions")
+    def delete_old_quiz_questions(self, db):
+        """DELETE: Delete quiz questions (embedded deletion pattern).
+        Tests deletion of embedded objects by parent ID."""
+        unique_quiz_id = random.randint(53000000, 53999999)
+        
+        # Create a test quiz with embedded questions
+        questions = []
+        for i in range(30):
+            question = QuizQuestion(
+                question_id=random.randint(10000000, 99999999),
+                quiz_id=unique_quiz_id,
+                question_text=f"Question {i}",
+                points=random.choice([1, 2, 5, 10])
+            )
+            questions.append(question)
+        
+        quiz = Quiz(
+            quiz_id=unique_quiz_id,
+            course_id=1,
+            title="Quiz for deletion",
+            questions=questions
+        )
+        db.quizzes.insert(quiz)
+        
+        # BENCHMARK: Delete the quiz (which includes embedded questions)
+        db.quizzes.delete_many({"quiz_id": unique_quiz_id})
+        
+        return len(questions)
