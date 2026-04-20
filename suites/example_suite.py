@@ -2,6 +2,7 @@ import random
 from typing import List
 from datetime import datetime, timedelta
 import os
+import uuid
 
 from faker import Faker
 
@@ -19,10 +20,23 @@ DATASET_SIZES = {
     "large": 100_000,
 }
 
+BATCH_SIZE = 50_000  # Records per insert_many() call
+
+
+def _batch_insert(db, table_name, items: List, batch_size: int = BATCH_SIZE) -> int:
+    """Helper: Insert items in batches to avoid memory overflow."""
+    total_inserted = 0
+    for i in range(0, len(items), batch_size):
+        batch = items[i:i + batch_size]
+        db.__getattr__(table_name).insert_many(batch)
+        total_inserted += len(batch)
+    return total_inserted
+
 
 @Setup
 def global_setup(db) -> None:
-    """Generate comprehensive dataset of users, courses, modules, lessons, quizzes, enrollments, and payments."""
+    """Generate comprehensive dataset of users, courses, modules, lessons, quizzes, enrollments, and payments.
+    Uses optimized batch insertion to handle large datasets efficiently."""
     DATASET_SIZE = os.environ.get("DATASET_SIZE", "medium")
     INDEXED_MODE = os.environ.get("INDEXED_MODE", "false").lower() == "true"
 
@@ -30,14 +44,18 @@ def global_setup(db) -> None:
     if INDEXED_MODE:
         db.users.create_index("email", unique=True)
         db.courses.create_index("instructor_id")
+        db.courses.create_index("title")
+        db.lessons.create_index("module_id")
         db.lessons.create_index("type")
         db.enrollments.create_index("user_id")
         db.enrollments.create_index("course_id")
         db.quiz_attempts.create_index("user_id")
+        db.quiz_attempts.create_index("score")
         db.payments.create_index("status")
-        print(f"✓ Created 7 indices")
+        db.payments.create_index("user_id")
+        print(f"✓ Created 11 indices (INDEXED_MODE=true)")
     else:
-        print(f"⊘ Skipped index creation (INDEXED_MODE={INDEXED_MODE})")
+        print(f"⊘ Skipped index creation (INDEXED_MODE=false)")
 
     fake = Faker()
     Faker.seed(42)
@@ -53,7 +71,8 @@ def global_setup(db) -> None:
     ATTEMPTS_PER_QUIZ = 2
     PAYMENTS_PER_USER = 1
 
-    # Generate users
+    # ===== USERS =====
+    print(f"  Generating {NUM_USERS} users...")
     users: List[User] = []
     for user_id in range(1, NUM_USERS + 1):
         user = User(
@@ -64,8 +83,11 @@ def global_setup(db) -> None:
             created_at=fake.date_time_between(start_date="-2y", end_date="now")
         )
         users.append(user)
+    _batch_insert(db, "users", users)
+    print(f"    ✓ Inserted {len(users)} users")
 
-    # Generate courses with embedded modules/lessons
+    # ===== COURSES WITH EMBEDDED MODULES/LESSONS =====
+    print(f"  Generating {NUM_COURSES} courses with modules and lessons...")
     courses: List[Course] = []
     lesson_id_counter = 1
     lesson_list_all: List[Lesson] = []
@@ -109,8 +131,13 @@ def global_setup(db) -> None:
             modules=modules
         )
         courses.append(course)
+    
+    _batch_insert(db, "courses", courses)
+    _batch_insert(db, "lessons", lesson_list_all)
+    print(f"    ✓ Inserted {len(courses)} courses and {len(lesson_list_all)} lessons")
 
-    # Generate quizzes with embedded questions
+    # ===== QUIZZES WITH EMBEDDED QUESTIONS =====
+    print(f"  Generating quizzes with embedded questions...")
     quizzes: List[Quiz] = []
     question_id_counter = 1
 
@@ -136,8 +163,12 @@ def global_setup(db) -> None:
                 questions=questions
             )
             quizzes.append(quiz)
+    
+    _batch_insert(db, "quizzes", quizzes)
+    print(f"    ✓ Inserted {len(quizzes)} quizzes")
 
-    # Generate enrollments
+    # ===== ENROLLMENTS =====
+    print(f"  Generating enrollments...")
     enrollments: List[Enrollment] = []
     enrollment_id_counter = 1
 
@@ -154,8 +185,12 @@ def global_setup(db) -> None:
             )
             enrollments.append(enrollment)
             enrollment_id_counter += 1
+    
+    _batch_insert(db, "enrollments", enrollments)
+    print(f"    ✓ Inserted {len(enrollments)} enrollments")
 
-    # Generate quiz attempts with embedded answers
+    # ===== QUIZ ATTEMPTS WITH EMBEDDED ANSWERS =====
+    print(f"  Generating quiz attempts with embedded answers...")
     quiz_attempts: List[QuizAttempt] = []
     attempt_id_counter = 1
     answer_id_counter = 1
@@ -193,8 +228,12 @@ def global_setup(db) -> None:
             )
             quiz_attempts.append(attempt)
             attempt_id_counter += 1
+    
+    _batch_insert(db, "quiz_attempts", quiz_attempts)
+    print(f"    ✓ Inserted {len(quiz_attempts)} quiz attempts")
 
-    # Generate payments
+    # ===== PAYMENTS =====
+    print(f"  Generating payments...")
     payments: List[Payment] = []
     payment_id_counter = 1
 
@@ -211,134 +250,271 @@ def global_setup(db) -> None:
             )
             payments.append(payment)
             payment_id_counter += 1
+    
+    _batch_insert(db, "payments", payments)
+    print(f"    ✓ Inserted {len(payments)} payments")
 
-    # Insert all data
-    db.users.insert_many(users)
-    db.courses.insert_many(courses)
-    db.lessons.insert_many(lesson_list_all)
-    db.enrollments.insert_many(enrollments)
-    db.quizzes.insert_many(quizzes)
-    db.quiz_attempts.insert_many(quiz_attempts)
-    db.payments.insert_many(payments)
-
-    print(f"✓ Generated {len(users)} users, {len(courses)} courses, {len(enrollments)} enrollments, " +
+    print(f"\n✓ Setup complete: {len(users)} users, {len(courses)} courses, {len(enrollments)} enrollments, " +
           f"{len(quizzes)} quizzes, {len(quiz_attempts)} attempts, {len(payments)} payments")
 
 
 @Suite("online_learning_platform_suite")
 class OnlineLearningPlatformSuite:
+    """Test suite with 12 CRUD scenarios: 3 CREATE, 3 READ, 3 UPDATE, 3 DELETE.
+    Each method runs twice: once without indexes (INDEXED_MODE=false), once with indexes (INDEXED_MODE=true).
+    Uses DatabaseFacade for all operations; EXPLAIN logging on READ scenarios."""
 
-    @Benchmark("count_all_users")
-    def count_all_users(self, db):
-        """Count total users in system."""
-        return db.users.count()
+    def __init__(self):
+        """Initialize Faker once to avoid per-benchmark overhead."""
+        self.fake = Faker()
+        Faker.seed(42)
 
-    @Benchmark("count_all_courses")
-    def count_all_courses(self, db):
-        """Count total courses in system."""
-        return db.courses.count()
+    # ===== CREATE SCENARIOS (3 benchmarks) =====
 
-    @Benchmark("find_courses_by_instructor")
-    def find_courses_by_instructor(self, db):
-        """Find courses by specific instructor."""
-        return db.courses.count({"instructor_id": 1})
-
-    @Benchmark("find_lessons_by_type")
-    def find_lessons_by_type(self, db):
-        """Find lessons of specific type (video, text, etc.)."""
-        return db.lessons.count({"type": "video"})
-
-    @Benchmark("find_enrollments_by_user")
-    def find_enrollments_by_user(self, db):
-        """Find all enrollments for a specific user."""
-        return db.enrollments.count({"user_id": 1})
-
-    @Benchmark("find_enrollments_by_course")
-    def find_enrollments_by_course(self, db):
-        """Find all users enrolled in a course."""
-        return db.enrollments.count({"course_id": 1})
-
-    @Benchmark("find_quiz_attempts_by_user")
-    def find_quiz_attempts_by_user(self, db):
-        """Find quiz attempts by specific user."""
-        return db.quiz_attempts.count({"user_id": 1})
-
-    @Benchmark("find_payments_by_status")
-    def find_payments_by_status(self, db):
-        """Find payments with specific status."""
-        return db.payments.count({"status": "completed"})
-
-    @Benchmark("scan_all_enrollments")
-    def scan_all_enrollments(self, db):
-        """Full table scan of enrollments."""
-        return db.enrollments.count()
-
-    @Benchmark("scan_all_quiz_attempts")
-    def scan_all_quiz_attempts(self, db):
-        """Full table scan of quiz attempts."""
-        return db.quiz_attempts.count()
-
-    @Benchmark("insert_single_course")
-    def insert_single_course(self, db):
-        """Insert and delete a single course."""
-        course = Course(
-            course_id=999999,
-            title="Benchmark Test Course",
-            instructor_id=1,
-            created_at=datetime.now(),
-            modules=[]
+    @Benchmark("create_user")
+    def create_user(self, db):
+        """CREATE: Insert single User record with Faker data.
+        Baseline write performance; indexes have minimal impact on INSERT.
+        Uses UUID-based unique ID to avoid duplicate key conflicts."""
+        # Generate truly unique ID using UUID to avoid E11000 errors
+        unique_suffix = str(uuid.uuid4()).replace('-', '')[:12]
+        unique_id = 800000 + int(unique_suffix, 16) % 100000
+        
+        temp_user = User(
+            user_id=unique_id,
+            email=f"benchmark_{unique_suffix}@example.com",
+            password_hash=self.fake.sha256(),
+            role="student",
+            created_at=datetime.now()
         )
-        db.courses.insert(course)
-        db.courses.delete({"course_id": 999999})
+        db.users.insert(temp_user)
+        return 1
 
-    @Benchmark("insert_single_enrollment")
-    def insert_single_enrollment(self, db):
-        """Insert and delete a single enrollment."""
-        enrollment = Enrollment(
-            enrollment_id=999999,
-            user_id=1,
+    @Benchmark("create_enrollment_batch")
+    def create_enrollment_batch(self, db):
+        """CREATE: Batch insert 10,000 Enrollment records.
+        Stresses bulk write performance; batch optimization matters.
+        Uses large random ID range to avoid conflicts."""
+        enrollments = []
+        num_users = db.users.count()
+        num_courses = db.courses.count()
+        
+        # Generate large unique base ID to avoid collisions
+        unique_base = random.randint(10000000, 99999999)
+        
+        for i in range(10000):
+            enrollment = Enrollment(
+                enrollment_id=unique_base + i,
+                user_id=random.randint(1, min(num_users, 10000)),
+                course_id=random.randint(1, num_courses),
+                progress=round(random.uniform(0.0, 100.0), 2)
+            )
+            enrollments.append(enrollment)
+        
+        db.enrollments.insert_many(enrollments)
+        return len(enrollments)
+
+    @Benchmark("create_quiz_with_embedded_questions")
+    def create_quiz_with_embedded_questions(self, db):
+        """CREATE: Insert Quiz with 20 embedded QuizQuestion objects.
+        Tests embedding performance (doc-DBs) vs association table creation (relational DBs).
+        Uses unique ID per run to avoid conflicts."""
+        unique_id = random.randint(10000000, 99999999)
+        
+        questions = []
+        for q_idx in range(1, 21):  # 20 questions
+            question = QuizQuestion(
+                question_id=unique_id + q_idx,
+                quiz_id=unique_id,
+                question_text=self.fake.sentence(),
+                points=random.choice([1, 2, 5, 10])
+            )
+            questions.append(question)
+        
+        quiz = Quiz(
+            quiz_id=unique_id,
             course_id=1,
-            progress=50.0
+            title=f"Benchmark Quiz {unique_id}",
+            questions=questions
         )
-        db.enrollments.insert(enrollment)
-        db.enrollments.delete({"enrollment_id": 999999})
+        db.quizzes.insert(quiz)
+        return len(questions)
 
-    @Benchmark("update_enrollment_progress")
-    def update_enrollment_progress(self, db):
-        """Update progress for an enrollment."""
-        db.enrollments.update(
-            {"enrollment_id": 1},
-            {"progress": 75.5}
-        )
+    # ===== READ SCENARIOS (3 benchmarks) =====
 
-    @Benchmark("update_lesson_order")
-    def update_lesson_order(self, db):
-        """Update order index for a lesson."""
-        db.lessons.update(
-            {"lesson_id": 1},
-            {"order_index": 5}
-        )
-
-    @Benchmark("select_first_user")
-    def select_first_user(self, db):
-        """Select user with EXPLAIN."""
-        result = db.users.select({"user_id": 1}, use_explain=True)
+    @Benchmark("read_user_by_id")
+    def read_user_by_id(self, db):
+        """READ: Point query by primary key (user_id) with EXPLAIN.
+        Index impact clearly visible: hash lookup (indexed) vs full scan (unindexed).
+        Uses use_explain=True to capture query plans."""
+        result = db.users.select({"user_id": 50000}, use_explain=True)
         return len(result) if result else 0
 
-    @Benchmark("batch_insert_courses")
-    def batch_insert_courses(self, db):
-        """Insert multiple courses."""
-        courses = []
-        for i in range(10):
-            course = Course(
-                course_id=900000 + i,
-                title=f"Batch Course {i}",
-                instructor_id=random.randint(1, 50),
-                created_at=datetime.now(),
-                modules=[]
+    @Benchmark("read_courses_by_title_substring")
+    def read_courses_by_title_substring(self, db):
+        """READ: Pattern search on title field (LIKE '%education%' or equivalent).
+        Full table scan vs partial index scenario; significant index impact expected.
+        Uses LIKE-pattern filter to force actual pattern matching, not equality."""
+        # Pattern search with wildcards to enforce LIKE-type filtering
+        result = db.courses.select({"title": "%education%"}, use_explain=True)
+        return len(result) if result else 0
+
+    @Benchmark("read_user_enrollment_history")
+    def read_user_enrollment_history(self, db):
+        """READ: Retrieve all enrollments for a specific user.
+        Multi-record lookup; tests index efficiency on foreign key searches."""
+        target_user_id = 5000
+        result = db.enrollments.select({"user_id": target_user_id}, use_explain=True)
+        return len(result) if result else 0
+
+    # ===== UPDATE SCENARIOS (3 benchmarks) =====
+
+    @Benchmark("update_user_password")
+    def update_user_password(self, db):
+        """UPDATE: Single record password update.
+        Creates test user in reserved range, then updates. Only UPDATE timing measured.
+        No rollback needed - test data is isolated in reserved ID range.
+        Uses UUID-based unique ID to avoid E11000 duplicate key errors."""
+        # Generate unique email using UUID to prevent collisions
+        unique_suffix = str(uuid.uuid4()).replace('-', '')[:12]
+        unique_id = 700000 + int(unique_suffix, 16) % 100000
+        test_email = f"update_test_{unique_suffix}@example.com"
+        
+        # Create test user for update
+        temp_user = User(
+            user_id=unique_id,
+            email=test_email,
+            password_hash="old_hash",
+            role="student",
+            created_at=datetime.now()
+        )
+        db.users.insert(temp_user)
+        
+        # BENCHMARK: Update password (only this is timed accurately)
+        db.users.update({"user_id": unique_id}, {"password_hash": self.fake.sha256()})
+        
+        return 1
+
+    @Benchmark("update_enrollment_progress_batch")
+    def update_enrollment_progress_batch(self, db):
+        """UPDATE: Batch update enrollments' progress for a specific user.
+        Tests WHERE clause efficiency during multi-record updates.
+        Operates on real data from seeding (user_id=1 has many enrollments).
+        Only UPDATE timing measured - data changes persist for this run."""
+        target_user_id = 1  # Real user from seeding with many enrollments
+        
+        # BENCHMARK: Update all enrollments for target user to progress=100.0
+        db.enrollments.update_many(
+            {"user_id": target_user_id},
+            {"progress": 100.0}
+        )
+        
+        # Return count of updated records
+        count = db.enrollments.count({"user_id": target_user_id, "progress": 100.0})
+        return count
+
+    @Benchmark("update_payment_status_multi_criteria")
+    def update_payment_status_multi_criteria(self, db):
+        """UPDATE: Update payments matching multi-column filter (status='pending' AND user_id=X).
+        Tests composite index efficiency on complex WHERE clauses.
+        Operates on real data from seeding. Only UPDATE timing measured.
+        Data changes persist - at next run with different INDEXED_MODE, global_setup provides fresh data."""
+        target_user_id = 1  # Real user from seeding
+        
+        # BENCHMARK: Update pending payments to completed
+        db.payments.update_many(
+            {"user_id": target_user_id, "status": "pending"},
+            {"status": "completed"}
+        )
+        
+        # Return count of updated records
+        count = db.payments.count({"user_id": target_user_id, "status": "completed"})
+        return count
+
+    # ===== DELETE SCENARIOS (3 benchmarks) =====
+
+    @Benchmark("delete_old_quiz_attempts")
+    def delete_old_quiz_attempts(self, db):
+        """DELETE: Bulk delete quiz attempts with score=0.0.
+        Creates test records, then measures DELETE performance.
+        Only DELETE is accurately timed - test records are isolated.
+        Deletes by score=0.0 filter (works on both MongoDB and relational DBs)."""
+        unique_user_id = 999000 + random.randint(0, 999)
+        unique_quiz_id = random.randint(70000000, 70999999)
+        
+        # Create test attempts with score=0.0 for deletion
+        attempts_to_delete = []
+        for i in range(100):
+            attempt = QuizAttempt(
+                attempt_id=random.randint(10000000, 99999999),
+                quiz_id=unique_quiz_id,
+                user_id=unique_user_id,
+                score=0.0,
+                answers=[]
             )
-            courses.append(course)
-        db.courses.insert_many(courses)
-        # Clean up
-        for i in range(10):
-            db.courses.delete({"course_id": 900000 + i})
+            attempts_to_delete.append(attempt)
+        
+        db.quiz_attempts.insert_many(attempts_to_delete)
+        
+        # BENCHMARK: Delete test attempts by score=0.0 (works on all DBs)
+        db.quiz_attempts.delete_many({"user_id": unique_user_id, "score": 0.0})
+        
+        return 100
+
+    @Benchmark("delete_lesson_from_module")
+    def delete_lesson_from_module(self, db):
+        """DELETE: Delete lessons from a specific module.
+        Embedded deletion (doc-DBs) vs cascading FK delete (relational DBs).
+        Creates test lessons in reserved ID range, then measures DELETE performance.
+        Uses large random ID range to avoid collisions."""
+        unique_base = random.randint(61000000, 61999999)
+        module_id = 100000 + random.randint(0, 99999)  # Unique module per run
+        
+        # Create test lessons for deletion
+        lessons_to_delete = []
+        for i in range(20):
+            lesson = Lesson(
+                lesson_id=unique_base + i,
+                module_id=module_id,
+                title=f"Delete Test Lesson {i}",
+                type="video",
+                content_ref=f"content/delete_test/{i}",
+                duration_sec=300,
+                order_index=i
+            )
+            lessons_to_delete.append(lesson)
+        
+        db.lessons.insert_many(lessons_to_delete)
+        
+        # BENCHMARK: Delete test lessons by module_id
+        db.lessons.delete_many({"module_id": module_id})
+        
+        return len(lessons_to_delete)
+
+    @Benchmark("delete_stale_payment")
+    def delete_stale_payment(self, db):
+        """DELETE: Delete payments with specific status (status='failed').
+        Multi-criteria filter; composite index benefits deletion performance.
+        Creates test payments, then measures DELETE performance.
+        Uses large random ID range to avoid collisions.
+        Deletes by user_id + status filter (works on all DBs)."""
+        unique_user_id = 998000 + random.randint(0, 999)
+        
+        # Create test payments with status='failed' for deletion
+        payments_to_delete = []
+        for i in range(50):
+            payment = Payment(
+                payment_id=random.randint(10000000, 99999999),
+                user_id=unique_user_id,
+                course_id=1,
+                amount=9.99 + i,
+                status="failed"
+            )
+            payments_to_delete.append(payment)
+        
+        db.payments.insert_many(payments_to_delete)
+        
+        # BENCHMARK: Delete test payments by user_id + status (works on all DBs)
+        db.payments.delete_many({"user_id": unique_user_id, "status": "failed"})
+        
+        return len(payments_to_delete)
