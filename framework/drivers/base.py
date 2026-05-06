@@ -97,6 +97,20 @@ class DatabaseDriverInterface(abc.ABC):
         """Find entities matching filter."""
         pass
 
+    def select_advanced(self, table_name: str, filters: Dict = None, joins: List = None,
+                       group_by: List[str] = None, order_by: List[tuple] = None,
+                       limit: int = None, offset: int = None, use_explain: bool = False) -> Any:
+        """Advanced SELECT with JOIN, GROUP BY, ORDER BY, LIMIT, OFFSET support.
+        Optional: drivers can override for their specific implementation."""
+        raise NotImplementedError(f"select_advanced not implemented for {self.engine_name}")
+
+    def select_aggregation(self, table_name: str, filters: Dict = None, group_by: List[str] = None,
+                          aggregates: Dict[str, tuple] = None, order_by: List[tuple] = None,
+                          limit: int = None, use_explain: bool = False) -> Any:
+        """SELECT with aggregation (COUNT, AVG, SUM, MIN, MAX).
+        Optional: drivers can override for their specific implementation."""
+        raise NotImplementedError(f"select_aggregation not implemented for {self.engine_name}")
+
     # ------------------------------------------------------------------
     # Context-manager
     # ------------------------------------------------------------------
