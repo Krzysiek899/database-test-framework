@@ -29,8 +29,8 @@ class CollectionFacade:
     def delete_many(self, filter: dict) -> Any:
         return self.driver.delete_many(self.table_name, filter)
 
-    def select(self, filter: dict, use_explain: bool = False) -> Any:
-        return self.driver.select(self.table_name, filter, use_explain)
+    def select(self, filter: dict, use_explain: bool = False, explain_context: str = None) -> Any:
+        return self.driver.select(self.table_name, filter, use_explain, explain_context)
 
     def find_all(self) -> Any:
         return self.driver.find_all(self.table_name)

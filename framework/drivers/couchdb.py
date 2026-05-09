@@ -5,13 +5,13 @@ CouchDB driver – concrete implementation of DatabaseDriverInterface.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 import couchdb
 
 from framework.drivers.base import DatabaseDriverInterface
+from framework.reporting.explain_logger import ExplainLogger
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class CouchDbDriver(DatabaseDriverInterface):
         self._server: Optional[couchdb.Server] = None
         self._db: Any = None
         self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._explain_logger = ExplainLogger("couchdb", self.run_timestamp)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -133,18 +134,18 @@ class CouchDbDriver(DatabaseDriverInterface):
         for i in range(0, len(docs_to_delete), batch_size):
             db.update(docs_to_delete[i:i + batch_size])
 
-    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False, explain_context: str = None) -> Any:
         db = self._server[table_name]
 
         if use_explain:
             try:
                 explain_res = db.explain({'selector': filter})
-                os.makedirs("results/explain_logs", exist_ok=True)
-                log_path = f"results/explain_logs/couchdb_{self.run_timestamp}.txt"
-
-                with open(log_path, "a") as f:
-                    f.write(f"--- EXPLAIN TARGET: {table_name} filter: {filter} ---\n")
-                    f.write(f"{explain_res}\n")
+                self._explain_logger.log(
+                    explain_lines=[str(explain_res)],
+                    table_name=table_name,
+                    filter_repr=filter,
+                    context=explain_context,
+                )
             except Exception as e:
                 logger.warning(f"CouchDB EXPLAIN failed: {e}")
 

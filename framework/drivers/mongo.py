@@ -5,13 +5,13 @@ MongoDB driver – concrete implementation of DatabaseDriverInterface.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from pymongo import MongoClient
 
 from framework.drivers.base import DatabaseDriverInterface
+from framework.reporting.explain_logger import ExplainLogger
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class MongoDriver(DatabaseDriverInterface):
         self._client: Optional[MongoClient] = None
         self._db: Any = None
         self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._explain_logger = ExplainLogger("mongodb", self.run_timestamp)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -97,15 +98,16 @@ class MongoDriver(DatabaseDriverInterface):
     def delete_many(self, table_name: str, filter: Dict) -> Any:
         return self._db[table_name].delete_many(filter)
 
-    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False, explain_context: str = None) -> Any:
         cursor = self._db[table_name].find(filter)
         if use_explain:
-            os.makedirs("results/explain_logs", exist_ok=True)
-            log_path = f"results/explain_logs/mongodb_{self.run_timestamp}.txt"
-
-            with open(log_path, "a") as f:
-                f.write(f"--- EXPLAIN TARGET: {table_name} filter: {filter} ---\n")
-                f.write(f"{cursor.explain()}\n")
+            explain_output = cursor.explain()
+            self._explain_logger.log(
+                explain_lines=[str(explain_output)],
+                table_name=table_name,
+                filter_repr=filter,
+                context=explain_context,
+            )
         return list(cursor)
 
     def find_all(self, table_name: str) -> Any:

@@ -93,7 +93,7 @@ class DatabaseDriverInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False, explain_context: str = None) -> Any:
         """Find entities matching filter."""
         pass
 

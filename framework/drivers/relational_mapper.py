@@ -6,13 +6,14 @@ Handles schema creation and query generation for relational databases.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from sqlalchemy import MetaData, Table as SATable, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, select, func, and_, Index
 from sqlalchemy.sql import text
 from pydantic import BaseModel
+
+from framework.reporting.explain_logger import ExplainLogger
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,14 @@ class RelationalMapper:
         self._connection = None
         self._list_fields = {}
         self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._explain_logger: Optional[ExplainLogger] = None
+
+    def _get_explain_logger(self) -> ExplainLogger:
+        if self._explain_logger is None:
+            db_label = self.engine.name if self.engine else "sql"
+            self._explain_logger = ExplainLogger(db_label, self.run_timestamp)
+        assert self._explain_logger is not None
+        return self._explain_logger
 
     def set_engine_and_connection(self, engine: Any, connection: Any):
         self.engine = engine
@@ -227,7 +236,7 @@ class RelationalMapper:
     def delete_many(self, table_name: str, filter: Dict) -> Any:
         return self.delete(table_name, filter)
 
-    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False, explain_context: str = None) -> Any:
         table = self.metadata.tables[table_name]
         where_clause = self._build_where_clause(table, filter)
         stmt = select(table).where(where_clause)
@@ -236,16 +245,15 @@ class RelationalMapper:
             compiled = stmt.compile(self.engine, compile_kwargs={"literal_binds": True})
             explain_query = f"EXPLAIN {compiled.string}"
             explain_result = self._connection.execute(text(explain_query)).fetchall()
+            explain_lines = [str(row) for row in explain_result]
 
-            os.makedirs("results/explain_logs", exist_ok=True)
-            db_name = self.engine.name if self.engine else "sql"
-            log_path = f"results/explain_logs/{db_name}_{self.run_timestamp}.txt"
-
-            with open(log_path, "a") as f:
-                f.write(f"--- EXPLAIN TARGET: {table_name} filter: {filter} ---\n")
-                f.write(f"Query: {explain_query}\n")
-                for row in explain_result:
-                    f.write(f"{row}\n")
+            self._get_explain_logger().log(
+                explain_lines=explain_lines,
+                table_name=table_name,
+                filter_repr=filter,
+                query=explain_query,
+                context=explain_context,
+            )
 
         rows = self._connection.execute(stmt).fetchall()
 
