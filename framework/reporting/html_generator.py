@@ -47,7 +47,7 @@ class HTMLReportGenerator:
         logger.info("=" * 70)
         
         if not self.summary_csv.exists():
-            logger.error("⊘ summary_metrics.csv not found at %s", self.summary_csv)
+            logger.error("summary_metrics.csv not found at %s", self.summary_csv)
             logger.error("  Please run benchmarks first: python run_benchmarks.py")
             return
         
@@ -58,7 +58,7 @@ class HTMLReportGenerator:
         self._load_charts()
         
         if not self.results:
-            logger.error("⊘ No results found in summary_metrics.csv")
+            logger.error("No results found in summary_metrics.csv")
             return
         
         logger.info("Generating HTML report...")
@@ -67,7 +67,7 @@ class HTMLReportGenerator:
         output_path = self.results_dir / "report.html"
         output_path.write_text(html_content, encoding="utf-8")
         
-        logger.info("✓ HTML report generated: %s", output_path.absolute())
+        logger.info("HTML report generated: %s", output_path.absolute())
         logger.info("Open in browser: file://%s", output_path.absolute())
 
     def _load_results(self) -> None:
@@ -112,7 +112,7 @@ class HTMLReportGenerator:
         logger.info("Found %d chart images", len(self.chart_files))
         if len(self.chart_files) < 16:
             logger.warning(
-                "⊘ Expected 16 chart images, found %d. Some visualizations may be missing.",
+                "Expected 16 chart images, found %d. Some visualizations may be missing.",
                 len(self.chart_files)
             )
 

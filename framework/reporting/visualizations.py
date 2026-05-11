@@ -12,7 +12,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from suites.example_suite import DATASET_SIZES
+from suites.setups.online_learning_platform_setup import DATASET_SIZES
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -100,7 +100,7 @@ class BenchmarkVisualizer:
             test_data = self.df[self.df["test_name"] == test_name].copy()
             
             if test_data.empty:
-                logger.warning("    ⊘ No data for test %s", test_name)
+                logger.warning("    No data for test %s", test_name)
                 continue
             
             # Get aggregated data
@@ -251,9 +251,9 @@ class BenchmarkVisualizer:
                     height=700,
                     scale=2,
                 )
-                logger.info("    ✓ Saved: %s", filename)
+                logger.info("    Saved: %s", filename)
             except Exception as exc:
-                logger.error("    ✗ Failed to save %s: %s", filename, exc)
+                logger.error("    Failed to save %s: %s", filename, exc)
 
     def generate_summary_csv(self) -> None:
         """Generate summary metrics CSV."""
@@ -288,7 +288,7 @@ class BenchmarkVisualizer:
         logger.info("Generating all visualizations...")
         self.generate_per_test_charts()
         self.generate_summary_csv()
-        logger.info("✓ All visualizations generated")
+        logger.info("All visualizations generated")
 
 
 def generate_all_visualizations(result_files: List[str], results_dir: str) -> None:

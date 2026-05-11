@@ -68,13 +68,13 @@ Examples:
     # Validate results directory
     results_path = Path(args.results_dir)
     if not results_path.exists():
-        print(f"✗ Error: Results directory not found: {results_path.absolute()}")
+        print(f"Error: Results directory not found: {results_path.absolute()}")
         print("  Please run benchmarks first: python run_benchmarks.py")
         sys.exit(1)
     
     summary_csv = results_path / "summary_metrics.csv"
     if not summary_csv.exists():
-        print(f"✗ Error: summary_metrics.csv not found in {results_path.absolute()}")
+        print(f"Error: summary_metrics.csv not found in {results_path.absolute()}")
         print("  Please run benchmarks first: python run_benchmarks.py")
         sys.exit(1)
     
@@ -89,11 +89,11 @@ Examples:
         html_gen.generate()
         
         logger.info("\n" + "=" * 70)
-        logger.info("✓ Report generation complete")
+        logger.info("Report generation complete")
         logger.info("=" * 70)
         
     except Exception as exc:
-        print(f"✗ Error: {exc}")
+        print(f"Error: {exc}")
         sys.exit(1)
 
 

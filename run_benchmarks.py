@@ -56,7 +56,7 @@ def run_orchestrator(
     logger.info("DATABASE BENCHMARK ORCHESTRATOR")
     logger.info("=" * 70)
 
-    suite_modules = suite_modules or ["suites.example_suite"]
+    suite_modules = suite_modules or ["suites.online_learning_platform_suite"]
     engines = engines or ["postgres", "mongodb", "mysql"]
 
     results_dir = Path("results")
@@ -85,7 +85,7 @@ def run_orchestrator(
             if indexed:
                 engines_to_run = [e for e in engines if e not in ["couchdb"]]
                 if not engines_to_run:
-                    logger.info("⊘ Skipped: CouchDB do not support indexing yet")
+                    logger.info("Skipped: CouchDB do not support indexing yet")
                     continue
 
             try:
@@ -111,10 +111,10 @@ def run_orchestrator(
                 # Collect result files
                 all_result_files.extend(runner.all_result_files)
 
-                logger.info("✓ Completed: %s dataset, %s indexing", dataset_size, index_label)
+                logger.info("Completed: %s dataset, %s indexing", dataset_size, index_label)
 
             except Exception as exc:
-                logger.error("✗ Failed: %s dataset, %s indexing: %s",
+                logger.error("Failed: %s dataset, %s indexing: %s",
                            dataset_size, index_label, exc)
                 raise
 
@@ -125,16 +125,16 @@ def run_orchestrator(
     # Generate comprehensive visualizations
     try:
         generate_all_visualizations(all_result_files, str(results_dir))
-        logger.info("✓ Visualizations generated successfully")
+        logger.info("Visualizations generated successfully")
     except Exception as exc:
-        logger.error("✗ Visualization generation failed: %s", exc)
+        logger.error("Visualization generation failed: %s", exc)
         raise
 # Generate HTML report
     try:
         html_gen = HTMLReportGenerator(results_dir=str(results_dir))
         html_gen.generate()
     except Exception as exc:
-        logger.error("✗ HTML report generation failed: %s", exc)
+        logger.error("HTML report generation failed: %s", exc)
         raise
 
     
@@ -163,7 +163,7 @@ def main() -> None:
     parser.add_argument(
         "--suite",
         nargs="*",
-        default=["suites.example_suite"],
+        default=["suites.online_learning_platform_suite"],
         help="Python module paths containing @benchmark functions",
     )
     parser.add_argument(
