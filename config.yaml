@@ -1,7 +1,7 @@
 # Global settings applied to every benchmark run
 global:
-  warmup_iterations: 3        # Non-measured queries before benchmark
-  benchmark_iterations: 10    # Measured iterations per test function
+  warmup_iterations: 1        # Non-measured queries before benchmark
+  benchmark_iterations: 3    # Measured iterations per test function
   results_dir: "results"      # Output directory for JSON / CSV reports
   stats_interval_sec: 0.5     # Docker stats polling interval
 
@@ -11,7 +11,7 @@ engines:
     engine_type: postgres
     image: "postgres:16-alpine"
     port: 5432
-    host_port: 5432
+    host_port: 5433
     environment:
       POSTGRES_USER: bench
       POSTGRES_PASSWORD: bench
