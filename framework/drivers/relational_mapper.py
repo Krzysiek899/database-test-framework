@@ -6,13 +6,14 @@ Handles schema creation and query generation for relational databases.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from sqlalchemy import MetaData, Table as SATable, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, select, func, and_, or_, Index
 from sqlalchemy.sql import text
 from pydantic import BaseModel
+
+from framework.reporting.explain_logger import ExplainLogger
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,14 @@ class RelationalMapper:
         self._connection = None
         self._list_fields = {}
         self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._explain_logger: Optional[ExplainLogger] = None
+
+    def _get_explain_logger(self) -> ExplainLogger:
+        if self._explain_logger is None:
+            db_label = self.engine.name if self.engine else "sql"
+            self._explain_logger = ExplainLogger(db_label, self.run_timestamp)
+        assert self._explain_logger is not None
+        return self._explain_logger
 
     def set_engine_and_connection(self, engine: Any, connection: Any):
         self.engine = engine
@@ -270,7 +279,7 @@ class RelationalMapper:
     def delete_many(self, table_name: str, filter: Dict) -> Any:
         return self.delete(table_name, filter)
 
-    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False, explain_context: str = None) -> Any:
         table = self.metadata.tables[table_name]
         where_clause = self._build_where_clause(table, filter)
         stmt = select(table).where(where_clause)
@@ -279,16 +288,15 @@ class RelationalMapper:
             compiled = stmt.compile(self.engine, compile_kwargs={"literal_binds": True})
             explain_query = f"EXPLAIN {compiled.string}"
             explain_result = self._connection.execute(text(explain_query)).fetchall()
+            explain_lines = [str(row) for row in explain_result]
 
-            os.makedirs("results/explain_logs", exist_ok=True)
-            db_name = self.engine.name if self.engine else "sql"
-            log_path = f"results/explain_logs/{db_name}_{self.run_timestamp}.txt"
-
-            with open(log_path, "a") as f:
-                f.write(f"--- EXPLAIN TARGET: {table_name} filter: {filter} ---\n")
-                f.write(f"Query: {explain_query}\n")
-                for row in explain_result:
-                    f.write(f"{row}\n")
+            self._get_explain_logger().log(
+                explain_lines=explain_lines,
+                table_name=table_name,
+                filter_repr=filter,
+                query=explain_query,
+                context=explain_context,
+            )
 
         rows = self._connection.execute(stmt).fetchall()
 
@@ -312,10 +320,11 @@ class RelationalMapper:
 
         return results
 
-    def select_advanced(self, table_name: str, filters: Optional[Dict] = None, 
+    def select_advanced(self, table_name: str, filters: Optional[Dict] = None,
                        joins: Optional[List[tuple]] = None, group_by: Optional[List[str]] = None,
                        order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                       offset: Optional[int] = None, use_explain: bool = False) -> Any:
+                       offset: Optional[int] = None, use_explain: bool = False,
+                       explain_context: Optional[str] = None) -> Any:
         """Advanced SELECT with JOIN, GROUP BY, ORDER BY, LIMIT, OFFSET support.
         
         Fully SQLAlchemy Core native - all filtering, joining, grouping, ordering happens at DB level.
@@ -444,20 +453,18 @@ class RelationalMapper:
                 compiled = stmt.compile(self.engine, compile_kwargs={"literal_binds": True})
                 explain_query = f"EXPLAIN {compiled.string}"
                 explain_result = self._connection.execute(text(explain_query)).fetchall()
-                
-                os.makedirs("results/explain_logs", exist_ok=True)
-                db_name = self.engine.name if self.engine else "sql"
-                log_path = f"results/explain_logs/{db_name}_{self.run_timestamp}.txt"
-                
-                with open(log_path, "a") as f:
-                    f.write(f"--- EXPLAIN TARGET: {table_name} (advanced) filters: {filters} joins: {joins} ---\n")
-                    f.write(f"Query: {explain_query}\n")
-                    for row in explain_result:
-                        f.write(f"{row}\n")
-                    f.write("\n")
+                explain_lines = [str(row) for row in explain_result]
+
+                self._get_explain_logger().log(
+                    explain_lines=explain_lines,
+                    table_name=table_name,
+                    filter_repr={"filters": filters, "joins": joins},
+                    query=explain_query,
+                    context=explain_context,
+                )
             except Exception as e:
-                logger.warning("EXPLAIN failed: %s", str(e))
-        
+                logger.warning("EXPLAIN (advanced) failed: %s", str(e))
+
         # Execute query - all logic at database level
         rows = self._connection.execute(stmt).fetchall()
         
@@ -470,10 +477,11 @@ class RelationalMapper:
         return results
 
     def select_aggregation(self, table_name: str, filters: Optional[Dict] = None,
-                          group_by: Optional[List[str]] = None, 
+                          group_by: Optional[List[str]] = None,
                           aggregates: Optional[Dict[str, tuple]] = None,
                           order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                          use_explain: bool = False) -> Any:
+                          use_explain: bool = False,
+                          explain_context: Optional[str] = None) -> Any:
         """SELECT with aggregation (COUNT, AVG, SUM, MIN, MAX) - fully database-side.
         
         Builds proper SQLAlchemy aggregate query using func.count(), func.sum(), etc.
@@ -641,20 +649,18 @@ class RelationalMapper:
                 compiled = stmt.compile(self.engine, compile_kwargs={"literal_binds": True})
                 explain_query = f"EXPLAIN {compiled.string}"
                 explain_result = self._connection.execute(text(explain_query)).fetchall()
-                
-                os.makedirs("results/explain_logs", exist_ok=True)
-                db_name = self.engine.name if self.engine else "sql"
-                log_path = f"results/explain_logs/{db_name}_{self.run_timestamp}.txt"
-                
-                with open(log_path, "a") as f:
-                    f.write(f"--- EXPLAIN TARGET: {table_name} (aggregation) group_by: {group_by} ---\n")
-                    f.write(f"Query: {explain_query}\n")
-                    for row in explain_result:
-                        f.write(f"{row}\n")
-                    f.write("\n")
+                explain_lines = [str(row) for row in explain_result]
+
+                self._get_explain_logger().log(
+                    explain_lines=explain_lines,
+                    table_name=table_name,
+                    filter_repr={"filters": filters, "group_by": group_by, "aggregates": aggregates},
+                    query=explain_query,
+                    context=explain_context,
+                )
             except Exception as e:
-                logger.warning("EXPLAIN failed: %s", str(e))
-        
+                logger.warning("EXPLAIN (aggregation) failed: %s", str(e))
+
         # Execute - all logic at database level
         rows = self._connection.execute(stmt).fetchall()
         

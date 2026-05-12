@@ -5,13 +5,13 @@ CouchDB driver – concrete implementation of DatabaseDriverInterface.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 import couchdb
 
 from framework.drivers.base import DatabaseDriverInterface
+from framework.reporting.explain_logger import ExplainLogger
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class CouchDbDriver(DatabaseDriverInterface):
         self._server: Optional[couchdb.Server] = None
         self._db: Any = None
         self.run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._explain_logger = ExplainLogger("couchdb", self.run_timestamp)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -133,18 +134,18 @@ class CouchDbDriver(DatabaseDriverInterface):
         for i in range(0, len(docs_to_delete), batch_size):
             db.update(docs_to_delete[i:i + batch_size])
 
-    def select(self, table_name: str, filter: Dict, use_explain: bool = False) -> Any:
+    def select(self, table_name: str, filter: Dict, use_explain: bool = False, explain_context: str = None) -> Any:
         db = self._server[table_name]
 
         if use_explain:
             try:
                 explain_res = db.explain({'selector': filter})
-                os.makedirs("results/explain_logs", exist_ok=True)
-                log_path = f"results/explain_logs/couchdb_{self.run_timestamp}.txt"
-
-                with open(log_path, "a") as f:
-                    f.write(f"--- EXPLAIN TARGET: {table_name} filter: {filter} ---\n")
-                    f.write(f"{explain_res}\n")
+                self._explain_logger.log(
+                    explain_lines=[str(explain_res)],
+                    table_name=table_name,
+                    filter_repr=filter,
+                    context=explain_context,
+                )
             except Exception as e:
                 logger.warning(f"CouchDB EXPLAIN failed: {e}")
 
@@ -163,7 +164,8 @@ class CouchDbDriver(DatabaseDriverInterface):
     def select_advanced(self, table_name: str, filters: Optional[Dict] = None,
                        joins: Optional[List[tuple]] = None, group_by: Optional[List[str]] = None,
                        order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                       offset: Optional[int] = None, use_explain: bool = False) -> Any:
+                       offset: Optional[int] = None, use_explain: bool = False,
+                       explain_context: Optional[str] = None) -> Any:
         """Advanced SELECT for CouchDB (limited support - uses Mango queries).
         
         Note: CouchDB has limited JOIN support and does NOT support dynamic ORDER BY in Mango
@@ -198,19 +200,18 @@ class CouchDbDriver(DatabaseDriverInterface):
         if use_explain:
             try:
                 explain_res = db.explain(query)
-                os.makedirs("results/explain_logs", exist_ok=True)
-                log_path = f"results/explain_logs/couchdb_{self.run_timestamp}.txt"
-                
-                with open(log_path, "a") as f:
-                    f.write(f"--- EXPLAIN TARGET: {table_name} (advanced) ---\n")
-                    f.write(f"Query: {query}\n")
-                    f.write(f"Explain: {explain_res}\n")
-                    f.write(f"Note: ORDER BY not supported in CouchDB Mango without pre-defined indexes.\n")
-                    f.write(f"Requested: joins={joins}, group_by={group_by}, order_by={order_by}, limit={limit}, offset={offset}\n")
-                    f.write("\n")
+                self._explain_logger.log(
+                    explain_lines=[str(explain_res),
+                                   f"Note: ORDER BY not supported in CouchDB Mango without pre-defined indexes.",
+                                   f"Requested: joins={joins}, group_by={group_by}, order_by={order_by}, limit={limit}, offset={offset}"],
+                    table_name=table_name,
+                    filter_repr={"filters": filters, "joins": joins},
+                    query=str(query),
+                    context=explain_context,
+                )
             except Exception as e:
-                logger.warning(f"CouchDB EXPLAIN failed: {e}")
-        
+                logger.warning("CouchDB EXPLAIN (advanced) failed: %s", e)
+
         try:
             results = list(db.find(query))
             return results
@@ -223,7 +224,8 @@ class CouchDbDriver(DatabaseDriverInterface):
                           group_by: Optional[List[str]] = None,
                           aggregates: Optional[Dict[str, tuple]] = None,
                           order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                          use_explain: bool = False) -> Any:
+                          use_explain: bool = False,
+                          explain_context: Optional[str] = None) -> Any:
         """Aggregation for CouchDB (NOT FULLY SUPPORTED - CouchDB lacks native GROUP BY).
         
         Note: CouchDB does NOT natively support GROUP BY queries in Mango.
@@ -254,17 +256,16 @@ class CouchDbDriver(DatabaseDriverInterface):
         query = {'selector': selector}
         
         if use_explain:
-            os.makedirs("results/explain_logs", exist_ok=True)
-            log_path = f"results/explain_logs/couchdb_{self.run_timestamp}.txt"
-            
-            with open(log_path, "a") as f:
-                f.write(f"--- EXPLAIN TARGET: {table_name} (aggregation) ---\n")
-                f.write(f"Query: {query}\n")
-                f.write(f"WARNING: CouchDB does NOT support GROUP BY in Mango queries.\n")
-                f.write(f"Requested: group_by={group_by}, aggregates={aggregates}, order_by={order_by}, limit={limit}\n")
-                f.write(f"Returning raw filtered results without aggregation to preserve performance measurements.\n")
-                f.write("\n")
-        
+            self._explain_logger.log(
+                explain_lines=[f"WARNING: CouchDB does NOT support GROUP BY in Mango queries.",
+                               f"Requested: group_by={group_by}, aggregates={aggregates}, order_by={order_by}, limit={limit}",
+                               f"Returning raw filtered results without aggregation to preserve performance measurements."],
+                table_name=table_name,
+                filter_repr={"filters": filters, "group_by": group_by, "aggregates": aggregates},
+                query=str(query),
+                context=explain_context,
+            )
+
         try:
             docs = list(db.find(query))
             # Do NOT aggregate in Python - that would distort benchmark results

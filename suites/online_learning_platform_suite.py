@@ -202,7 +202,8 @@ class OnlineLearningPlatformSuite:
         result = db.courses.select_advanced(
             filters={"enrollments.user_id": 5},
             joins=[("courses", "enrollments", "course_id", "course_id")],
-            use_explain=True
+            use_explain=True,
+            explain_context="read_enrolled_courses_with_details",
         )
         return len(result) if result else 0
 
@@ -219,7 +220,8 @@ class OnlineLearningPlatformSuite:
             aggregates={"enrollment_count": ("course_id", "count")},
             order_by=[("enrollment_count", "desc")],
             limit=10,
-            use_explain=True
+            use_explain=True,
+            explain_context="read_top_courses_by_enrollment_count",
         )
         return len(result) if result else 0
 
@@ -234,7 +236,8 @@ class OnlineLearningPlatformSuite:
             filters={"amount": {"gte": 50.0, "lte": 150.0}},
             order_by=[("amount", "desc")],
             limit=20,
-            use_explain=True
+            use_explain=True,
+            explain_context="read_payments_in_amount_range",
         )
         return len(result) if result else 0
 
@@ -251,7 +254,8 @@ class OnlineLearningPlatformSuite:
             aggregates={"avg_progress": ("progress", "avg"), "student_count": ("user_id", "count")},
             order_by=[("avg_progress", "desc")],
             limit=15,
-            use_explain=True
+            use_explain=True,
+            explain_context="read_avg_enrollment_progress_by_course",
         )
         return len(result) if result else 0
 
@@ -272,7 +276,8 @@ class OnlineLearningPlatformSuite:
             ],
             order_by=[("score", "desc")],
             limit=50,
-            use_explain=True
+            use_explain=True,
+            explain_context="read_quiz_performance_with_course_details",
         )
         return len(result) if result else 0
 
@@ -290,7 +295,8 @@ class OnlineLearningPlatformSuite:
             order_by=[("order_index", "asc")],
             limit=page_size,
             offset=page * page_size,
-            use_explain=True
+            use_explain=True,
+            explain_context="read_lessons_paginated",
         )
         return len(result) if result else 0
 
@@ -305,7 +311,8 @@ class OnlineLearningPlatformSuite:
             filters={"user_id": 50, "status": "completed"},
             order_by=[("amount", "desc")],
             limit=25,
-            use_explain=True
+            use_explain=True,
+            explain_context="read_payments_by_user_and_status",
         )
         return len(result) if result else 0
 
