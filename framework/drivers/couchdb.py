@@ -160,3 +160,118 @@ class CouchDbDriver(DatabaseDriverInterface):
         if filter:
             return len(list(db.find({'selector': filter})))
         return len(db)
+
+    def select_advanced(self, table_name: str, filters: Optional[Dict] = None,
+                       joins: Optional[List[tuple]] = None, group_by: Optional[List[str]] = None,
+                       order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
+                       offset: Optional[int] = None, use_explain: bool = False) -> Any:
+        """Advanced SELECT for CouchDB (limited support - uses Mango queries).
+        
+        Note: CouchDB has limited JOIN support and does NOT support dynamic ORDER BY in Mango
+        without explicit pre-defined indexes. Results returned unordered.
+        For full functionality, use relational databases (PostgreSQL, MySQL) or MongoDB.
+        """
+        db = self._server[table_name]
+        selector = {}
+        
+        # Apply filters using Mango selector
+        if filters:
+            for k, v in filters.items():
+                if isinstance(v, dict) and any(op in v for op in ["gt", "lt", "gte", "lte", "in"]):
+                    mongo_op = {}
+                    for op, val in v.items():
+                        if op == "gt":
+                            mongo_op["$gt"] = val
+                        elif op == "lt":
+                            mongo_op["$lt"] = val
+                        elif op == "gte":
+                            mongo_op["$gte"] = val
+                        elif op == "lte":
+                            mongo_op["$lte"] = val
+                        elif op == "in":
+                            mongo_op["$in"] = val
+                    selector[k] = mongo_op
+                else:
+                    selector[k] = v
+        
+        query = {'selector': selector}
+        
+        if use_explain:
+            try:
+                explain_res = db.explain(query)
+                os.makedirs("results/explain_logs", exist_ok=True)
+                log_path = f"results/explain_logs/couchdb_{self.run_timestamp}.txt"
+                
+                with open(log_path, "a") as f:
+                    f.write(f"--- EXPLAIN TARGET: {table_name} (advanced) ---\n")
+                    f.write(f"Query: {query}\n")
+                    f.write(f"Explain: {explain_res}\n")
+                    f.write(f"Note: ORDER BY not supported in CouchDB Mango without pre-defined indexes.\n")
+                    f.write(f"Requested: joins={joins}, group_by={group_by}, order_by={order_by}, limit={limit}, offset={offset}\n")
+                    f.write("\n")
+            except Exception as e:
+                logger.warning(f"CouchDB EXPLAIN failed: {e}")
+        
+        try:
+            results = list(db.find(query))
+            return results
+        except Exception as e:
+            logger.warning(f"CouchDB advanced query failed: {e}. Returning empty results.")
+            return []
+
+
+    def select_aggregation(self, table_name: str, filters: Optional[Dict] = None,
+                          group_by: Optional[List[str]] = None,
+                          aggregates: Optional[Dict[str, tuple]] = None,
+                          order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
+                          use_explain: bool = False) -> Any:
+        """Aggregation for CouchDB (NOT FULLY SUPPORTED - CouchDB lacks native GROUP BY).
+        
+        Note: CouchDB does NOT natively support GROUP BY queries in Mango.
+        This implementation returns unordered, unaggregated results to avoid
+        distorting performance measurements with Python-side aggregation.
+        For proper aggregation benchmarking, use relational databases or MongoDB.
+        """
+        db = self._server[table_name]
+        
+        selector = {}
+        if filters:
+            for k, v in filters.items():
+                if isinstance(v, dict) and any(op in v for op in ["gt", "lt", "gte", "lte"]):
+                    mongo_op = {}
+                    for op, val in v.items():
+                        if op == "gt":
+                            mongo_op["$gt"] = val
+                        elif op == "lt":
+                            mongo_op["$lt"] = val
+                        elif op == "gte":
+                            mongo_op["$gte"] = val
+                        elif op == "lte":
+                            mongo_op["$lte"] = val
+                    selector[k] = mongo_op
+                else:
+                    selector[k] = v
+        
+        query = {'selector': selector}
+        
+        if use_explain:
+            os.makedirs("results/explain_logs", exist_ok=True)
+            log_path = f"results/explain_logs/couchdb_{self.run_timestamp}.txt"
+            
+            with open(log_path, "a") as f:
+                f.write(f"--- EXPLAIN TARGET: {table_name} (aggregation) ---\n")
+                f.write(f"Query: {query}\n")
+                f.write(f"WARNING: CouchDB does NOT support GROUP BY in Mango queries.\n")
+                f.write(f"Requested: group_by={group_by}, aggregates={aggregates}, order_by={order_by}, limit={limit}\n")
+                f.write(f"Returning raw filtered results without aggregation to preserve performance measurements.\n")
+                f.write("\n")
+        
+        try:
+            docs = list(db.find(query))
+            # Do NOT aggregate in Python - that would distort benchmark results
+            # CouchDB simply doesn't support this operation efficiently
+            return docs
+        except Exception as e:
+            logger.warning(f"CouchDB aggregation query failed: {e}")
+            return []
+
