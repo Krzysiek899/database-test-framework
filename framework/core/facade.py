@@ -43,7 +43,7 @@ class CollectionFacade:
 
     def select_advanced(self, filters: dict = None, joins: list = None, group_by: list = None,
                        order_by: list = None, limit: int = None, offset: int = None,
-                       use_explain: bool = False) -> Any:
+                       use_explain: bool = False, explain_context: str = None) -> Any:
         """Advanced SELECT with JOIN, GROUP BY, ORDER BY, LIMIT, OFFSET support.
         
         Proxy to driver.select_advanced() for current table.
@@ -56,12 +56,14 @@ class CollectionFacade:
             order_by=order_by,
             limit=limit,
             offset=offset,
-            use_explain=use_explain
+            use_explain=use_explain,
+            explain_context=explain_context,
         )
 
     def select_aggregation(self, filters: dict = None, group_by: list = None,
                           aggregates: dict = None, order_by: list = None,
-                          limit: int = None, use_explain: bool = False) -> Any:
+                          limit: int = None, use_explain: bool = False,
+                          explain_context: str = None) -> Any:
         """SELECT with aggregation (COUNT, AVG, SUM, MIN, MAX).
         
         Proxy to driver.select_aggregation() for current table.
@@ -74,7 +76,8 @@ class CollectionFacade:
             aggregates=aggregates,
             order_by=order_by,
             limit=limit,
-            use_explain=use_explain
+            use_explain=use_explain,
+            explain_context=explain_context,
         )
 
 

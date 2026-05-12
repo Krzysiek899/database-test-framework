@@ -129,7 +129,8 @@ class MongoDriver(DatabaseDriverInterface):
     def select_advanced(self, table_name: str, filters: Optional[Dict] = None,
                        joins: Optional[List[tuple]] = None, group_by: Optional[List[str]] = None,
                        order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                       offset: Optional[int] = None, use_explain: bool = False) -> Any:
+                       offset: Optional[int] = None, use_explain: bool = False,
+                       explain_context: Optional[str] = None) -> Any:
         """Advanced SELECT with aggregation pipeline support (JOIN-like $lookup, GROUP BY, ORDER BY, LIMIT).
         
         Args:
@@ -207,14 +208,14 @@ class MongoDriver(DatabaseDriverInterface):
             pipeline.append({"$limit": limit})
         
         if use_explain:
-            os.makedirs("results/explain_logs", exist_ok=True)
-            log_path = f"results/explain_logs/mongodb_{self.run_timestamp}.txt"
-            
-            with open(log_path, "a") as f:
-                f.write(f"--- EXPLAIN TARGET: {table_name} (advanced) ---\n")
-                f.write(f"Pipeline: {pipeline}\n")
-                f.write("\n")
-        
+            self._explain_logger.log(
+                explain_lines=[str(pipeline)],
+                table_name=table_name,
+                filter_repr={"filters": filters, "joins": joins},
+                query=f"aggregate pipeline: {pipeline}",
+                context=explain_context,
+            )
+
         results = list(self._db[table_name].aggregate(pipeline))
         return results
 
@@ -222,7 +223,8 @@ class MongoDriver(DatabaseDriverInterface):
                           group_by: Optional[List[str]] = None,
                           aggregates: Optional[Dict[str, tuple]] = None,
                           order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                          use_explain: bool = False) -> Any:
+                          use_explain: bool = False,
+                          explain_context: Optional[str] = None) -> Any:
         """SELECT with aggregation (COUNT, AVG, SUM, MIN, MAX) via aggregation pipeline.
         
         Args:
@@ -305,14 +307,14 @@ class MongoDriver(DatabaseDriverInterface):
             pipeline.append({"$limit": limit})
         
         if use_explain:
-            os.makedirs("results/explain_logs", exist_ok=True)
-            log_path = f"results/explain_logs/mongodb_{self.run_timestamp}.txt"
-            
-            with open(log_path, "a") as f:
-                f.write(f"--- EXPLAIN TARGET: {table_name} (aggregation) ---\n")
-                f.write(f"Pipeline: {pipeline}\n")
-                f.write("\n")
-        
+            self._explain_logger.log(
+                explain_lines=[str(pipeline)],
+                table_name=table_name,
+                filter_repr={"filters": filters, "group_by": group_by, "aggregates": aggregates},
+                query=f"aggregate pipeline: {pipeline}",
+                context=explain_context,
+            )
+
         results = list(self._db[table_name].aggregate(pipeline))
         return results
 

@@ -112,14 +112,15 @@ class PostgresDriver(DatabaseDriverInterface):
     def select_advanced(self, table_name: str, filters: Optional[Dict] = None,
                        joins: Optional[List[tuple]] = None, group_by: Optional[List[str]] = None,
                        order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                       offset: Optional[int] = None, use_explain: bool = False) -> Any:
+                       offset: Optional[int] = None, use_explain: bool = False,
+                       explain_context: Optional[str] = None) -> Any:
         """Advanced SELECT with JOIN, GROUP BY, ORDER BY, LIMIT, OFFSET support."""
-        return self.mapper.select_advanced(table_name, filters, joins, group_by, order_by, limit, offset, use_explain)
+        return self.mapper.select_advanced(table_name, filters, joins, group_by, order_by, limit, offset, use_explain, explain_context)
 
     def select_aggregation(self, table_name: str, filters: Optional[Dict] = None,
                           group_by: Optional[List[str]] = None,
                           aggregates: Optional[Dict[str, tuple]] = None,
                           order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                          use_explain: bool = False) -> Any:
+                          use_explain: bool = False, explain_context: Optional[str] = None) -> Any:
         """SELECT with aggregation (COUNT, AVG, SUM, MIN, MAX)."""
-        return self.mapper.select_aggregation(table_name, filters, group_by, aggregates, order_by, limit, use_explain)
+        return self.mapper.select_aggregation(table_name, filters, group_by, aggregates, order_by, limit, use_explain, explain_context)

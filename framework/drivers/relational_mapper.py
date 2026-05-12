@@ -320,10 +320,11 @@ class RelationalMapper:
 
         return results
 
-    def select_advanced(self, table_name: str, filters: Optional[Dict] = None, 
+    def select_advanced(self, table_name: str, filters: Optional[Dict] = None,
                        joins: Optional[List[tuple]] = None, group_by: Optional[List[str]] = None,
                        order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                       offset: Optional[int] = None, use_explain: bool = False) -> Any:
+                       offset: Optional[int] = None, use_explain: bool = False,
+                       explain_context: Optional[str] = None) -> Any:
         """Advanced SELECT with JOIN, GROUP BY, ORDER BY, LIMIT, OFFSET support.
         
         Fully SQLAlchemy Core native - all filtering, joining, grouping, ordering happens at DB level.
@@ -452,20 +453,18 @@ class RelationalMapper:
                 compiled = stmt.compile(self.engine, compile_kwargs={"literal_binds": True})
                 explain_query = f"EXPLAIN {compiled.string}"
                 explain_result = self._connection.execute(text(explain_query)).fetchall()
-                
-                os.makedirs("results/explain_logs", exist_ok=True)
-                db_name = self.engine.name if self.engine else "sql"
-                log_path = f"results/explain_logs/{db_name}_{self.run_timestamp}.txt"
-                
-                with open(log_path, "a") as f:
-                    f.write(f"--- EXPLAIN TARGET: {table_name} (advanced) filters: {filters} joins: {joins} ---\n")
-                    f.write(f"Query: {explain_query}\n")
-                    for row in explain_result:
-                        f.write(f"{row}\n")
-                    f.write("\n")
+                explain_lines = [str(row) for row in explain_result]
+
+                self._get_explain_logger().log(
+                    explain_lines=explain_lines,
+                    table_name=table_name,
+                    filter_repr={"filters": filters, "joins": joins},
+                    query=explain_query,
+                    context=explain_context,
+                )
             except Exception as e:
-                logger.warning("EXPLAIN failed: %s", str(e))
-        
+                logger.warning("EXPLAIN (advanced) failed: %s", str(e))
+
         # Execute query - all logic at database level
         rows = self._connection.execute(stmt).fetchall()
         
@@ -478,10 +477,11 @@ class RelationalMapper:
         return results
 
     def select_aggregation(self, table_name: str, filters: Optional[Dict] = None,
-                          group_by: Optional[List[str]] = None, 
+                          group_by: Optional[List[str]] = None,
                           aggregates: Optional[Dict[str, tuple]] = None,
                           order_by: Optional[List[tuple]] = None, limit: Optional[int] = None,
-                          use_explain: bool = False) -> Any:
+                          use_explain: bool = False,
+                          explain_context: Optional[str] = None) -> Any:
         """SELECT with aggregation (COUNT, AVG, SUM, MIN, MAX) - fully database-side.
         
         Builds proper SQLAlchemy aggregate query using func.count(), func.sum(), etc.
@@ -649,20 +649,18 @@ class RelationalMapper:
                 compiled = stmt.compile(self.engine, compile_kwargs={"literal_binds": True})
                 explain_query = f"EXPLAIN {compiled.string}"
                 explain_result = self._connection.execute(text(explain_query)).fetchall()
-                
-                os.makedirs("results/explain_logs", exist_ok=True)
-                db_name = self.engine.name if self.engine else "sql"
-                log_path = f"results/explain_logs/{db_name}_{self.run_timestamp}.txt"
-                
-                with open(log_path, "a") as f:
-                    f.write(f"--- EXPLAIN TARGET: {table_name} (aggregation) group_by: {group_by} ---\n")
-                    f.write(f"Query: {explain_query}\n")
-                    for row in explain_result:
-                        f.write(f"{row}\n")
-                    f.write("\n")
+                explain_lines = [str(row) for row in explain_result]
+
+                self._get_explain_logger().log(
+                    explain_lines=explain_lines,
+                    table_name=table_name,
+                    filter_repr={"filters": filters, "group_by": group_by, "aggregates": aggregates},
+                    query=explain_query,
+                    context=explain_context,
+                )
             except Exception as e:
-                logger.warning("EXPLAIN failed: %s", str(e))
-        
+                logger.warning("EXPLAIN (aggregation) failed: %s", str(e))
+
         # Execute - all logic at database level
         rows = self._connection.execute(stmt).fetchall()
         
