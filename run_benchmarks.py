@@ -157,8 +157,8 @@ def main() -> None:
     parser.add_argument(
         "--engines",
         nargs="*",
-        default=["postgres", "mongodb", "couchdb"],
-        help="Engine names to benchmark (default: postgres, mongodb, couchdb)",
+        default=["postgres", "mysql", "mongodb", "couchdb"],
+        help="Engine names to benchmark (default: postgres, mysql, mongodb, couchdb)",
     )
     parser.add_argument(
         "--suite",

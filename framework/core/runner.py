@@ -43,6 +43,11 @@ class BenchmarkRunner:
         importlib.import_module("data.schema")
         logger.info("Loaded data schema")
         
+        # Remove setup modules to ensure @Setup decorator is re-evaluated
+        for module_name in list(sys.modules.keys()):
+            if "setups" in module_name:
+                del sys.modules[module_name]
+        
         # Then reload suite modules
         for mod_name in self.suite_modules:
             # Remove from sys.modules and reimport to ensure fresh execution
@@ -105,7 +110,15 @@ class BenchmarkRunner:
 
                 # Schema + seed - user defined now
                 if registry.setup is not None:
+                    logger.info("Executing global setup (function: %s)...", registry.setup.fn.__name__)
+                    sys.stdout.flush()
+                    sys.stderr.flush()
                     registry.setup.fn(db)
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                    logger.info("Global setup completed.")
+                else:
+                    logger.warning("No global setup registered!")
 
                 # Telemetry
                 observer = Observer(

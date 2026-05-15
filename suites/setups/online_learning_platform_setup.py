@@ -2,6 +2,7 @@ import random
 from typing import List
 from datetime import datetime
 import os
+import sys
 
 from faker import Faker
 
@@ -14,12 +15,23 @@ from data.schema import (
 
 # Map sizes to number of users (constant, doesn't change)
 DATASET_SIZES = {
-    "small": 1_000,
-    "medium": 5_000,
-    "large": 10_000,
+    "small": 10_000,
+    "medium": 100_000,
+    "large": 1_000_000,
 }
 
-BATCH_SIZE = 50_000  # Records per insert_many() call
+BATCH_SIZE = 100_000  # Records per insert_many() call - increased for faster inserts
+
+
+# Pre-generate fake data to avoid expensive operations in loops
+def _generate_email(user_id: int) -> str:
+    """Generate simple but unique email addresses."""
+    return f"user{user_id}@example.com"
+
+
+def _generate_password_hash() -> str:
+    """Generate simple password hashes."""
+    return "sha256_" + os.urandom(16).hex()[:40]
 
 
 def _batch_insert(db, table_name, items: List, batch_size: int = BATCH_SIZE) -> int:
@@ -53,9 +65,9 @@ def global_setup(db) -> None:
         db.payments.create_index("status")
         db.payments.create_index("user_id")
         db.payments.create_index("amount")
-        print(f"Created 13 indices (INDEXED_MODE=true)")
+        print(f"Created 13 indices (INDEXED_MODE=true)", flush=True)
     else:
-        print(f"Skipped index creation (INDEXED_MODE=false)")
+        print(f"Skipped index creation (INDEXED_MODE=false)", flush=True)
 
     fake = Faker()
     Faker.seed(42)
@@ -67,20 +79,20 @@ def global_setup(db) -> None:
     MODULES_PER_COURSE = random.randint(2, 5)    
     LESSONS_PER_MODULE = random.randint(3, 8)    
     QUIZZES_PER_COURSE = random.choice([0, 1, 2, 3])    
-    QUESTIONS_PER_QUIZ = random.randint(3, 30)
+    QUESTIONS_PER_QUIZ = random.randint(3, 15)
     
     def get_enrollments_per_user():
         return random.choices(
-            [1, 2, 3, 5, 10, 15],
-            weights=[40, 25, 15, 10, 7, 3]
+            [1, 3, 5, 10],
+            weights=[40, 25, 10, 3]
         )[0]
     
     ENROLLMENTS_PER_USER = None  # dynamic per user
     
     def get_attempts_per_quiz():
         return random.choices(
-            [1, 2, 3, 5],
-            weights=[50, 30, 15, 5]
+            [1, 3, 5],
+            weights=[30, 50, 5]
         )[0]
     
     ATTEMPTS_PER_QUIZ = None  # dynamic per quiz
@@ -94,22 +106,22 @@ def global_setup(db) -> None:
         )[0]
 
     # ===== USERS =====
-    print(f"  Generating {NUM_USERS} users...")
+    print(f"Generating {NUM_USERS} users...", flush=True)
     users: List[User] = []
     for user_id in range(1, NUM_USERS + 1):
         user = User(
             user_id=user_id,
-            email=fake.unique.email(),
-            password_hash=fake.sha256(),
+            email=_generate_email(user_id),
+            password_hash=_generate_password_hash(),
             role=random.choice(["student", "instructor", "admin"]),
             created_at=fake.date_time_between(start_date="-2y", end_date="now")
         )
         users.append(user)
     _batch_insert(db, "users", users)
-    print(f"    Inserted {len(users)} users")
+    print(f"Inserted {len(users)} users", flush=True)
 
     # ===== COURSES WITH EMBEDDED MODULES/LESSONS =====
-    print(f"  Generating {NUM_COURSES} courses with modules and lessons...")
+    print(f"Generating {NUM_COURSES} courses with modules and lessons...", flush=True)
     courses: List[Course] = []
     lesson_id_counter = 1
     lesson_list_all: List[Lesson] = []
@@ -156,10 +168,10 @@ def global_setup(db) -> None:
     
     _batch_insert(db, "courses", courses)
     _batch_insert(db, "lessons", lesson_list_all)
-    print(f"    Inserted {len(courses)} courses and {len(lesson_list_all)} lessons")
+    print(f"Inserted {len(courses)} courses and {len(lesson_list_all)} lessons", flush=True)
 
     # ===== QUIZZES WITH EMBEDDED QUESTIONS =====
-    print(f"  Generating quizzes with embedded questions...")
+    print(f"Generating quizzes with embedded questions...", flush=True)
     quizzes: List[Quiz] = []
     question_id_counter = 1
     quiz_id_counter = 1
@@ -189,10 +201,10 @@ def global_setup(db) -> None:
             quiz_id_counter += 1
     
     _batch_insert(db, "quizzes", quizzes)
-    print(f"    Inserted {len(quizzes)} quizzes")
+    print(f"Inserted {len(quizzes)} quizzes", flush=True)
 
     # ===== ENROLLMENTS =====
-    print(f"  Generating enrollments...")
+    print(f"Generating enrollments...", flush=True)
     enrollments: List[Enrollment] = []
     enrollment_id_counter = 1
 
@@ -211,37 +223,39 @@ def global_setup(db) -> None:
             enrollment_id_counter += 1
     
     _batch_insert(db, "enrollments", enrollments)
-    print(f"    Inserted {len(enrollments)} enrollments")
+    print(f"Inserted {len(enrollments)} enrollments", flush=True)
 
     # ===== QUIZ ATTEMPTS WITH EMBEDDED ANSWERS =====
-    print(f"  Generating quiz attempts with embedded answers...")
+    print(f"Generating quiz attempts with embedded answers...", flush=True)
     quiz_attempts: List[QuizAttempt] = []
     attempt_id_counter = 1
     answer_id_counter = 1
 
-    for quiz_id in range(1, len(quizzes) + 1):
+    # Map quizzes by ID for O(1) lookup instead of O(n) search
+    quiz_map = {q.quiz_id: q for q in quizzes}
+
+    for quiz_id, quiz in quiz_map.items():
         num_attempts = get_attempts_per_quiz()
-        attempting_users = random.sample(range(1, NUM_USERS + 1), min(num_attempts, NUM_USERS))
+        # For large datasets, sample fewer users
+        max_users_to_sample = min(num_attempts, 100 if DATASET_SIZE == "large" else NUM_USERS)
+        attempting_users = random.sample(range(1, NUM_USERS + 1), min(max_users_to_sample, NUM_USERS))
 
         for user_id in attempting_users:
             answers = []
             total_points = 0
 
-            # Find questions for this quiz
-            quiz_qs = [q for q in quizzes if q.quiz_id == quiz_id]
-            if quiz_qs:
-                for question in quiz_qs[0].questions:
-                    points_awarded = random.choice([0, question.points])
-                    total_points += points_awarded
-                    answer = QuestionAnswer(
-                        answer_id=answer_id_counter,
-                        attempt_id=attempt_id_counter,
-                        question_id=question.question_id,
-                        answer_text=fake.sentence(),
-                        points_awarded=float(points_awarded)
-                    )
-                    answers.append(answer)
-                    answer_id_counter += 1
+            for question in quiz.questions:
+                points_awarded = random.choice([0, question.points])
+                total_points += points_awarded
+                answer = QuestionAnswer(
+                    answer_id=answer_id_counter,
+                    attempt_id=attempt_id_counter,
+                    question_id=question.question_id,
+                    answer_text=f"answer_{answer_id_counter}",
+                    points_awarded=float(points_awarded)
+                )
+                answers.append(answer)
+                answer_id_counter += 1
 
             attempt = QuizAttempt(
                 attempt_id=attempt_id_counter,
@@ -254,10 +268,10 @@ def global_setup(db) -> None:
             attempt_id_counter += 1
     
     _batch_insert(db, "quiz_attempts", quiz_attempts)
-    print(f"    Inserted {len(quiz_attempts)} quiz attempts")
+    print(f"Inserted {len(quiz_attempts)} quiz attempts", flush=True)
 
     # ===== PAYMENTS =====
-    print(f"  Generating payments...")
+    print(f"Generating payments...", flush=True)
     payments: List[Payment] = []
     payment_id_counter = 1
 
@@ -278,7 +292,7 @@ def global_setup(db) -> None:
                 payment_id_counter += 1
     
     _batch_insert(db, "payments", payments)
-    print(f"    Inserted {len(payments)} payments")
+    print(f"Inserted {len(payments)} payments", flush=True)
 
     print(f"\nSetup complete: {len(users)} users, {len(courses)} courses, {len(enrollments)} enrollments, " +
-          f"{len(quizzes)} quizzes, {len(quiz_attempts)} attempts, {len(payments)} payments")
+          f"{len(quizzes)} quizzes, {len(quiz_attempts)} attempts, {len(payments)} payments", flush=True)
